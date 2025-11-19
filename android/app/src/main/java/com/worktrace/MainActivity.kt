@@ -1,5 +1,8 @@
 package com.worktrace
 
+// Importa Bundle (esta vez la sintaxis es correcta)
+import android.os.Bundle
+
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
@@ -19,4 +22,12 @@ class MainActivity : ReactActivity() {
    */
   override fun createReactActivityDelegate(): ReactActivityDelegate =
       DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled)
+
+  /**
+   * ESTA ES LA LÍNEA CORREGIDA
+   * Ahora pasa 'savedInstanceState' en lugar de 'null'.
+   */
+  override fun onCreate(savedInstanceState: Bundle?) {
+    super.onCreate(savedInstanceState) 
+  }
 }

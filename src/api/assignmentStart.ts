@@ -1,7 +1,7 @@
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const API_URL = "http://192.168.159.115:5284";
+const API_URL = "http://192.168.100.229:5284";
 
 export interface LocationPayload {
   latitude: number;
@@ -16,7 +16,7 @@ export interface StartAssignmentRequest {
 }
 
 export const startAssignment = async (
-  id: string,
+  id: string | number,
   payload: StartAssignmentRequest
 ) => {
   const token = await AsyncStorage.getItem("userToken");
@@ -40,7 +40,7 @@ export interface UpdateLocationRequest {
 }
 
 export const updateLocation = async (
-  id: string,
+  id: string | number,
   payload: UpdateLocationRequest
 ) => {
   const token = await AsyncStorage.getItem("userToken");

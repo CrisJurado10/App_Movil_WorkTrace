@@ -4,7 +4,7 @@ import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import useLocationTracking from '../hooks/useLocationTracking';
 
 const StartAssignmentScreen = ({ route }) => {
-  const { assignmentId } = route.params;
+  const { assignmentId } = route.params; // Extract only assignmentId
   const [loading, setLoading] = useState(true);
   const [checkInTime, setCheckInTime] = useState<string>('');
   const [lastCoords, setLastCoords] = useState<string>('');

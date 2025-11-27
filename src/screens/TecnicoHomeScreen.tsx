@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,9 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  PermissionsAndroid,
+  Platform,
+  Alert,
 } from 'react-native';
 import {
   useRoute,
@@ -15,6 +18,8 @@ import {
 } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getAssignmentsByUser } from '../api/assignment';
+import Geolocation from '@react-native-community/geolocation';
+import { requestLocationPermission } from '../utils/requestLocationPermission';
 
 const TecnicoHomeScreen = () => {
   const route = useRoute();
@@ -23,6 +28,10 @@ const TecnicoHomeScreen = () => {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false); // ⬅️ PARA PULL TO REFRESH
+  const [gpsReady, setGpsReady] = useState(false);
+  const [checkingGps, setCheckingGps] = useState(false);
+  const isCheckingGps = useRef(false);
+  const [currentLocation, setCurrentLocation] = useState<{latitude: number; longitude: number} | null>(null);
 
   // Convertir Date → "dd-MM-yyyy"
   const formatDMY = date => {
@@ -85,21 +94,95 @@ const TecnicoHomeScreen = () => {
     }
   };
 
+  // --- GPS Check Robust ---
+  const checkGps = async () => {
+    if (gpsReady || isCheckingGps.current) return; // Ya tenemos GPS o estamos chequeando
+
+    console.log('[GPS] Iniciando chequeo...');
+    isCheckingGps.current = true;
+    setCheckingGps(true);
+
+    if (!Geolocation) {
+        console.error('❌ Geolocation module is null! Check native linking.');
+        Alert.alert('Error Crítico', 'El módulo de geolocalización no se cargó correctamente.');
+        setCheckingGps(false);
+        isCheckingGps.current = false;
+        return;
+    }
+    
+    try {
+      let hasPermission = false;
+      
+      // 1. Explicit Permission Request
+      if (Platform.OS === 'android') {
+        console.log('[GPS] Solicitando permiso Android...');
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+        );
+        console.log('[GPS] Resultado permiso:', granted);
+        hasPermission = granted === PermissionsAndroid.RESULTS.GRANTED;
+      } else {
+        hasPermission = await requestLocationPermission();
+      }
+
+      if (!hasPermission) {
+        console.log('[GPS] Permiso denegado');
+        Alert.alert('Permiso denegado', 'Habilita el permiso de ubicación en ajustes.');
+        setCheckingGps(false);
+        isCheckingGps.current = false;
+        return;
+      }
+
+      // 2. Fetch Position using @react-native-community/geolocation
+      console.log('[GPS] Solicitando coordenadas con @react-native-community/geolocation...');
+      Geolocation.getCurrentPosition(
+        (pos) => {
+          console.log('[GPS] Éxito:', pos.coords);
+          console.log(`[GPS] Coordenadas recibidas: Lat ${pos.coords.latitude}, Lng ${pos.coords.longitude}`); // Log real coordinates
+          if (pos.coords.latitude !== 0 || pos.coords.longitude !== 0) {
+            setGpsReady(true);
+            setCurrentLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }); // Store real coords
+          }
+          setCheckingGps(false);
+          isCheckingGps.current = false;
+        },
+        (err) => {
+          console.log('[GPS] Error obteniendo posición:', err);
+          Alert.alert('Error GPS', `No se pudo obtener ubicación: ${err.message}`);
+          setCheckingGps(false);
+          isCheckingGps.current = false;
+        },
+        { 
+          enableHighAccuracy: false, 
+          timeout: 30000, 
+          maximumAge: 1000 
+        }
+      );
+    } catch (e) {
+      console.log('[GPS] Excepción en checkGps:', e);
+      setCheckingGps(false);
+      isCheckingGps.current = false;
+    }
+  };
+
   // 🟦 Primera carga
   useEffect(() => {
     loadAssignments();
+    checkGps();
   }, []);
 
   // 🟦 Recargar al volver a la pantalla
   useFocusEffect(
     useCallback(() => {
       loadAssignments();
+      checkGps();
     }, []),
   );
 
   // 🟦 Pull to Refresh
   const onRefresh = async () => {
     setRefreshing(true);
+    checkGps(); // Reintentar GPS al hacer pull
     await loadAssignments();
     setRefreshing(false);
   };
@@ -170,18 +253,34 @@ const TecnicoHomeScreen = () => {
                         <TouchableOpacity
                           style={[
                             styles.startButton,
-                            !enabled && styles.disabledButton,
+                            (!enabled || (!gpsReady && checkingGps)) && styles.disabledButton,
+                            (!gpsReady && !checkingGps && enabled) && styles.retryButton, // Estilo para reintentar
                           ]}
-                          disabled={!enabled}
-                          onPress={() =>
-                            navigation.navigate('StartAssignmentScreen', {
-                              assignmentId: item.id,
-                            })
-                          }
+                          disabled={!enabled || (!gpsReady && checkingGps)}
+                          onPress={() => {
+                            if (!enabled) return;
+                            if (gpsReady && currentLocation) { // Check if currentLocation is available
+                              navigation.navigate('StartAssignmentScreen', {
+                                assignmentId: item.id,
+                                latitude: currentLocation.latitude,
+                                longitude: currentLocation.longitude,
+                              });
+                            } else {
+                              // If not ready, do nothing or show a message.
+                              console.log('[GPS] GPS not ready yet or current location not available.');
+                              Alert.alert('GPS no listo', 'Espera a que el GPS esté listo.');
+                            }
+                          }}
                         >
-                          <Text style={styles.buttonText}>
-                            {enabled ? 'Iniciar' : 'No disponible'}
-                          </Text>
+                          {enabled && !gpsReady && checkingGps ? (
+                            <ActivityIndicator size="small" color="#ffffff" />
+                          ) : (
+                            <Text style={styles.buttonText}>
+                              {enabled 
+                                ? (gpsReady ? 'Iniciar' : 'Reintentar GPS') 
+                                : 'No disponible'}
+                            </Text>
+                          )}
                         </TouchableOpacity>
                       </View>
                     );
@@ -268,6 +367,9 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     backgroundColor: '#9CA3AF',
+  },
+  retryButton: {
+    backgroundColor: '#F59E0B', // Amber/Orange warning color
   },
   buttonText: {
     fontSize: 15,

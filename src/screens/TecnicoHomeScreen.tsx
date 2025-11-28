@@ -11,6 +11,7 @@ import {
   Platform,
   Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   useRoute,
   useFocusEffect,
@@ -164,14 +165,10 @@ const TecnicoHomeScreen = () => {
       isCheckingGps.current = false;
     }
   };
-
-  // 🟦 Primera carga
   useEffect(() => {
     loadAssignments();
     checkGps();
   }, []);
-
-  // 🟦 Recargar al volver a la pantalla
   useFocusEffect(
     useCallback(() => {
       loadAssignments();
@@ -179,7 +176,6 @@ const TecnicoHomeScreen = () => {
     }, []),
   );
 
-  // 🟦 Pull to Refresh
   const onRefresh = async () => {
     setRefreshing(true);
     checkGps(); // Reintentar GPS al hacer pull
@@ -192,6 +188,7 @@ const TecnicoHomeScreen = () => {
   };
 
   return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#F3F4F6' }}>
     <ScrollView
       style={styles.container}
       refreshControl={
@@ -292,6 +289,8 @@ const TecnicoHomeScreen = () => {
         </>
       )}
     </ScrollView>
+    
+  </SafeAreaView>
   );
 };
 

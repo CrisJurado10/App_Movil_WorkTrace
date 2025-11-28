@@ -56,3 +56,34 @@ export const updateLocation = async (
     }
   );
 };
+
+// ----------- UPDATE PROGRESS (multipart/form-data) --------------
+export const updateProgress = async (id: string | number, formData: FormData) => {
+  const token = await AsyncStorage.getItem("userToken");
+
+  return axios.put(`${API_URL}/AssignmentMobile/UpdateProgress/${id}/progress`, formData, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "multipart/form-data",
+    },
+  });
+};
+
+// ----------- FINISH ASSIGNMENT --------------
+export interface FinishAssignmentRequest {
+  checkOut: string;
+}
+
+export const finishAssignment = async (
+  id: string | number,
+  payload: FinishAssignmentRequest
+) => {
+  const token = await AsyncStorage.getItem("userToken");
+
+  return axios.post(`${API_URL}/AssignmentMobile/FinishAssignment/${id}/finish`, payload, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  });
+};

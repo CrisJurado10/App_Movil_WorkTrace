@@ -35,10 +35,18 @@ const StartAssignmentScreen = ({ route, navigation }) => {
 
   useEffect(() => {
     const t = setTimeout(() => setLoading(false), 1500);
-    const now = new Date().toLocaleString();
-    setCheckInTime(now);
+    
+    // Si viene checkIn en params, usarlo. Si no, usar ahora.
+    if (route.params?.checkIn) {
+        const d = new Date(route.params.checkIn);
+        setCheckInTime(d.toLocaleString());
+    } else {
+        const now = new Date().toLocaleString();
+        setCheckInTime(now);
+    }
+    
     return () => clearTimeout(t);
-  }, []);
+  }, [route.params?.checkIn]);
 
   const pickImage = async () => {
     const result = await launchImageLibrary({

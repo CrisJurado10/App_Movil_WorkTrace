@@ -19,8 +19,10 @@ import {
 } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getAssignmentsByUser } from '../api/assignment';
+import { startAssignment } from '../api/assignmentStart';
 import Geolocation from '@react-native-community/geolocation';
 import { requestLocationPermission } from '../utils/requestLocationPermission';
+import { toLocalISOString } from '../utils/dateUtils';
 
 const TecnicoHomeScreen = () => {
   const route = useRoute();
@@ -65,7 +67,7 @@ const TecnicoHomeScreen = () => {
   const weekDays = generateWeekDays();
 
   // Cargar tareas
-  const loadAssignments = async () => {
+  const loadAssignments = useCallback(async () => {
     setLoading(true);
 
     const userId = await AsyncStorage.getItem('userId');
@@ -93,10 +95,10 @@ const TecnicoHomeScreen = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   // --- GPS Check Robust ---
-  const checkGps = async () => {
+  const checkGps = useCallback(async () => {
     if (gpsReady || isCheckingGps.current) return; // Ya tenemos GPS o estamos chequeando
 
     console.log('[GPS] Iniciando chequeo...');
@@ -164,11 +166,8 @@ const TecnicoHomeScreen = () => {
       setCheckingGps(false);
       isCheckingGps.current = false;
     }
-  };
-  useEffect(() => {
-    loadAssignments();
-    checkGps();
-  }, []);
+  }, [gpsReady]);
+
   useFocusEffect(
     useCallback(() => {
       loadAssignments();
@@ -183,8 +182,55 @@ const TecnicoHomeScreen = () => {
     setRefreshing(false);
   };
 
-  const handleStart = id => {
-    console.log('Iniciar tarea:', id);
+  const handleCheckIn = async (item) => {
+    // Verificar si tenemos ubicación
+    if (!gpsReady || !currentLocation) {
+      console.log('[GPS] GPS not ready yet or current location not available.');
+      Alert.alert('GPS no listo', 'Espera a que el GPS esté listo.');
+      return;
+    }
+
+    // 1. Si ya tiene checkIn, NO llamar API, solo navegar
+    if (item.checkIn) {
+      console.log('Tarea ya iniciada anteriormente. Navegando...');
+      navigation.navigate('StartAssignmentScreen', {
+        assignmentId: item.id,
+        latitude: currentLocation.latitude,
+        longitude: currentLocation.longitude,
+        checkIn: item.checkIn,
+      });
+      return;
+    }
+
+    // 2. Si NO tiene checkIn, llamar API y luego navegar
+    try {
+      const now = toLocalISOString(new Date());
+      const payload = {
+        checkIn: now,
+        currentLocation: {
+          latitude: currentLocation.latitude,
+          longitude: currentLocation.longitude,
+          updatedAt: now,
+        },
+      };
+
+      await startAssignment(item.id, payload);
+      console.log('Check-In registrado con éxito.');
+
+      navigation.navigate('StartAssignmentScreen', {
+        assignmentId: item.id,
+        latitude: currentLocation.latitude,
+        longitude: currentLocation.longitude,
+        checkIn: now,
+      });
+      
+      // Actualizar lista para que aparezca el checkIn si volvemos
+      loadAssignments();
+
+    } catch (error) {
+      console.error('Error al hacer Check-In:', error);
+      Alert.alert('Error', 'No se pudo iniciar la tarea en el servidor.');
+    }
   };
 
   return (
@@ -250,31 +296,24 @@ const TecnicoHomeScreen = () => {
                         <TouchableOpacity
                           style={[
                             styles.startButton,
-                            (!enabled || (!gpsReady && checkingGps)) && styles.disabledButton,
-                            (!gpsReady && !checkingGps && enabled) && styles.retryButton, // Estilo para reintentar
+                            ((!enabled && !item.checkIn) || (!gpsReady && checkingGps)) && styles.disabledButton,
+                            (!gpsReady && !checkingGps && enabled && !item.checkIn) && styles.retryButton,
+                            !!item.checkIn && styles.inProgressButton,
                           ]}
-                          disabled={!enabled || (!gpsReady && checkingGps)}
+                          disabled={(!enabled && !item.checkIn) || (!gpsReady && checkingGps)}
                           onPress={() => {
-                            if (!enabled) return;
-                            if (gpsReady && currentLocation) { // Check if currentLocation is available
-                              navigation.navigate('StartAssignmentScreen', {
-                                assignmentId: item.id,
-                                latitude: currentLocation.latitude,
-                                longitude: currentLocation.longitude,
-                              });
-                            } else {
-                              // If not ready, do nothing or show a message.
-                              console.log('[GPS] GPS not ready yet or current location not available.');
-                              Alert.alert('GPS no listo', 'Espera a que el GPS esté listo.');
-                            }
+                            if (!enabled && !item.checkIn) return;
+                            handleCheckIn(item);
                           }}
                         >
-                          {enabled && !gpsReady && checkingGps ? (
+                          {(enabled || item.checkIn) && !gpsReady && checkingGps ? (
                             <ActivityIndicator size="small" color="#ffffff" />
                           ) : (
                             <Text style={styles.buttonText}>
-                              {enabled 
-                                ? (gpsReady ? 'Iniciar' : 'Reintentar GPS') 
+                              {item.checkIn
+                                ? 'Servicio en Progreso'
+                                : enabled
+                                ? (gpsReady ? 'Iniciar' : 'Reintentar GPS')
                                 : 'No disponible'}
                             </Text>
                           )}
@@ -369,6 +408,9 @@ const styles = StyleSheet.create({
   },
   retryButton: {
     backgroundColor: '#F59E0B', // Amber/Orange warning color
+  },
+  inProgressButton: {
+    backgroundColor: '#F97316', // Orange
   },
   buttonText: {
     fontSize: 15,

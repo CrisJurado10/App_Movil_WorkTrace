@@ -183,53 +183,60 @@ const TecnicoHomeScreen = () => {
   };
 
   const handleCheckIn = async (item) => {
-    // Verificar si tenemos ubicación
-    if (!gpsReady || !currentLocation) {
-      console.log('[GPS] GPS not ready yet or current location not available.');
+    // Basic check if GPS permission/module is ready, although we will force a fresh read.
+    // We can keep checking gpsReady to ensure the initial setup passed.
+    if (!gpsReady) {
+      console.log('[GPS] GPS not ready yet.');
       Alert.alert('GPS no listo', 'Espera a que el GPS esté listo.');
       return;
     }
 
-    // 1. Si ya tiene checkIn, NO llamar API, solo navegar
-    if (item.checkIn) {
-      console.log('Tarea ya iniciada anteriormente. Navegando...');
-      navigation.navigate('StartAssignmentScreen', {
-        assignmentId: item.id,
-        latitude: currentLocation.latitude,
-        longitude: currentLocation.longitude,
-        checkIn: item.checkIn,
-      });
-      return;
-    }
-
-    // 2. Si NO tiene checkIn, llamar API y luego navegar
     try {
+      // FORCE FRESH GPS READ
+      const getFreshLocation = () => {
+        return new Promise<any>((resolve, reject) => {
+          Geolocation.getCurrentPosition(
+            (pos) => resolve(pos.coords),
+            (err) => reject(err),
+            { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 } // Force fresh
+          );
+        });
+      };
+
+      console.log('[handleCheckIn] Obteniendo ubicación fresca...');
+      const freshCoords = await getFreshLocation();
+      console.log('[handleCheckIn] Ubicación fresca:', freshCoords.latitude, freshCoords.longitude);
+
       const now = toLocalISOString(new Date());
+      // Si ya tiene checkIn, usarlo. Si no, usar ahora.
+      const checkInDate = item.checkIn ? item.checkIn : now;
+
       const payload = {
-        checkIn: now,
+        checkIn: checkInDate,
         currentLocation: {
-          latitude: currentLocation.latitude,
-          longitude: currentLocation.longitude,
-          updatedAt: now,
+          latitude: freshCoords.latitude,
+          longitude: freshCoords.longitude,
+          UpdatedAt: new Date().toISOString(), // PascalCase y UTC
         },
       };
 
+      // Llamar SIEMPRE a la API para actualizar ubicación (aunque ya esté iniciada)
       await startAssignment(item.id, payload);
-      console.log('Check-In registrado con éxito.');
+      console.log('Check-In/Update registrado con éxito.');
 
       navigation.navigate('StartAssignmentScreen', {
         assignmentId: item.id,
-        latitude: currentLocation.latitude,
-        longitude: currentLocation.longitude,
-        checkIn: now,
+        latitude: freshCoords.latitude,
+        longitude: freshCoords.longitude,
+        checkIn: checkInDate,
       });
       
-      // Actualizar lista para que aparezca el checkIn si volvemos
+      // Actualizar lista
       loadAssignments();
 
     } catch (error) {
       console.error('Error al hacer Check-In:', error);
-      Alert.alert('Error', 'No se pudo iniciar la tarea en el servidor.');
+      Alert.alert('Error', 'No se pudo obtener ubicación o iniciar tarea.');
     }
   };
 

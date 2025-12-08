@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useLayoutEffect } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import {
   useRoute,
   useFocusEffect,
   useNavigation,
+  CommonActions,
 } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getAssignmentsByUser } from '../api/assignment';
@@ -26,15 +27,72 @@ import { toLocalISOString } from '../utils/dateUtils';
 
 const TecnicoHomeScreen = () => {
   const route = useRoute();
-  const { userName } = route.params;
   const navigation = useNavigation<any>();
+  const [displayName, setDisplayName] = useState(route.params?.userName || '');
   const [tasks, setTasks] = useState([]);
+
+  useEffect(() => {
+    const loadName = async () => {
+      if (!displayName) {
+        const storedName = await AsyncStorage.getItem('userName');
+        if (storedName) setDisplayName(storedName);
+      }
+    };
+    loadName();
+  }, [displayName]);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false); // ⬅️ PARA PULL TO REFRESH
   const [gpsReady, setGpsReady] = useState(false);
   const [checkingGps, setCheckingGps] = useState(false);
   const isCheckingGps = useRef(false);
   const [currentLocation, setCurrentLocation] = useState<{latitude: number; longitude: number} | null>(null);
+
+  // --- LOGOUT LOGIC ---
+  const handleLogout = async () => {
+    Alert.alert(
+      'Cerrar Sesión',
+      '¿Estás seguro de que deseas salir?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Salir',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await AsyncStorage.multiRemove([
+                'userToken',
+                'userEmail',
+                'userPassword',
+                'userId',
+                'userRole',
+                'userName'
+              ]);
+              
+              navigation.dispatch(
+                CommonActions.reset({
+                  index: 0,
+                  routes: [{ name: 'Login' }],
+                })
+              );
+            } catch (e) {
+              console.error('Error al cerrar sesión', e);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity onPress={handleLogout} style={{ marginRight: 15 }}>
+          <Text style={{ color: '#EF4444', fontWeight: 'bold', fontSize: 16 }}>Salir</Text>
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation]);
 
   // Convertir Date → "dd-MM-yyyy"
   const formatDMY = date => {
@@ -249,7 +307,7 @@ const TecnicoHomeScreen = () => {
       }
     >
       <Text style={styles.title}>Bienvenido</Text>
-      <Text style={styles.name}>{userName}</Text>
+      <Text style={styles.name}>{displayName}</Text>
 
       {loading ? (
         <ActivityIndicator size="large" />

@@ -9,9 +9,12 @@ import {
   Button,
   Alert,
   ScrollView,
-  Image
+  Image,
+  PermissionsAndroid,
+  Platform,
+  NativeModules
 } from 'react-native';
-import { launchImageLibrary } from 'react-native-image-picker';
+import ImagePicker from 'react-native-image-crop-picker';
 import useLocationTracking from '../hooks/useLocationTracking';
 import { updateProgress, finishAssignment } from '../api/assignmentStart';
 
@@ -48,24 +51,57 @@ const StartAssignmentScreen = ({ route, navigation }) => {
     return () => clearTimeout(t);
   }, [route.params?.checkIn]);
 
-  const pickImage = async () => {
-    const result = await launchImageLibrary({
-      mediaType: 'photo',
-      quality: 0.8,
-    });
+  const requestCameraPermission = async () => {
+    if (Platform.OS === 'android') {
+      try {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.CAMERA,
+          {
+            title: 'Permiso de Cámara',
+            message: 'La aplicación necesita acceso a la cámara para tomar fotos.',
+            buttonNeutral: 'Preguntar luego',
+            buttonNegative: 'Cancelar',
+            buttonPositive: 'OK',
+          },
+        );
+        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      } catch (err) {
+        console.warn(err);
+        return false;
+      }
+    }
+    return true; // iOS handles permissions automatically via Info.plist
+  };
 
-    if (result.didCancel) return;
+  const takePhoto = async () => {
+    try {
+      const hasPermission = await requestCameraPermission();
+      if (!hasPermission) {
+        Alert.alert('Permiso denegado', 'No se puede abrir la cámara sin permiso.');
+        return;
+      }
 
-    if (result.assets && result.assets.length > 0) {
-      const asset = result.assets[0];
-      setMediaFiles((prev) => [
-        ...prev,
-        {
-          uri: asset.uri,
-          type: asset.type || 'image/jpeg',
-          name: asset.fileName || 'photo.jpg',
-        },
-      ]);
+      const image = await ImagePicker.openCamera({
+        mediaType: 'photo',
+        compressImageQuality: 0.8,
+      });
+
+      if (image) {
+        const filename = image.filename || image.path.split('/').pop() || 'photo_cam.jpg';
+        setMediaFiles((prev) => [
+          ...prev,
+          {
+            uri: image.path,
+            type: image.mime || 'image/jpeg',
+            name: filename,
+          },
+        ]);
+      }
+    } catch (e: any) {
+      if (e.code !== 'E_PICKER_CANCELLED') {
+        console.error('TakePhoto Error:', e);
+        Alert.alert('Error', 'No se pudo abrir la cámara. Verifica permisos y reinicia.');
+      }
     }
   };
 
@@ -135,7 +171,9 @@ const buildFormData = (commentText: string, files: UploadFile[]) => {
               onChangeText={setComment}
               multiline
             />
-            <Button title="Agregar foto" onPress={pickImage} />
+            <View style={{ marginBottom: 10, marginTop: 10 }}>
+               <Button title="Tomar Foto (Cámara)" onPress={takePhoto} />
+            </View>
             <View style={styles.imagesContainer}>
               {mediaFiles.map((file, idx) => (
                 <Image key={idx} source={{ uri: file.uri }} style={styles.imagePreview} />

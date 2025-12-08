@@ -15,6 +15,8 @@ import { useNavigation } from '@react-navigation/native';
 import { login } from '../api/auth';
 import LinearGradient from 'react-native-linear-gradient';
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 const LoginScreen = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -25,6 +27,11 @@ const LoginScreen = () => {
     setLoading(true);
     try {
       const user = await login(email, password);
+      
+      // Guardar credenciales para Silent Login
+      await AsyncStorage.setItem('userEmail', email);
+      await AsyncStorage.setItem('userPassword', password);
+
       const userRole =
         user?.['http://schemas.microsoft.com/ws/2008/06/identity/claims/role'];
       const userName =

@@ -20,6 +20,8 @@
     "jwt-decode": "^4.0.0",
     "react": "19.1.1",
     "react-native": "0.82.1",
+    "react-native-background-actions": "^4.0.1",
+    "react-native-background-timer": "^2.4.1",
     "react-native-geolocation-service": "^5.3.1",
     "react-native-gesture-handler": "^2.29.1",
     "react-native-image-crop-picker": "^0.51.1",

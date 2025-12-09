@@ -33,6 +33,7 @@
       android:usesCleartextTraffic="${usesCleartextTraffic}"
       android:supportsRtl="true">
       <service android:name="com.agontuk.RNFusedLocation.ForegroundLocationService" android:enabled="true" android:exported="false" android:foregroundServiceType="location" android:stopWithTask="false" />
+      <service android:name="com.asterinet.react.bgactions.RNBackgroundActionsTask" android:foregroundServiceType="location" android:stopWithTask="false" />
       <activity
         android:name=".MainActivity"
         android:label="@string/app_name"

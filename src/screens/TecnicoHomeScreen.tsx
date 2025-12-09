@@ -10,6 +10,8 @@ import {
   PermissionsAndroid,
   Platform,
   Alert,
+  AppState,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -24,31 +26,227 @@ import { startAssignment } from '../api/assignmentStart';
 import Geolocation from '@react-native-community/geolocation';
 import { requestLocationPermission } from '../utils/requestLocationPermission';
 import { toLocalISOString } from '../utils/dateUtils';
+import { startBackgroundLocationService } from '../services/BackgroundLocationService';
 
 const TecnicoHomeScreen = () => {
+  // 1. HOOKS
   const route = useRoute();
   const navigation = useNavigation<any>();
   const [displayName, setDisplayName] = useState(route.params?.userName || '');
   const [tasks, setTasks] = useState([]);
-
-  useEffect(() => {
-    const loadName = async () => {
-      if (!displayName) {
-        const storedName = await AsyncStorage.getItem('userName');
-        if (storedName) setDisplayName(storedName);
-      }
-    };
-    loadName();
-  }, [displayName]);
-
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false); // ⬅️ PARA PULL TO REFRESH
+  const [refreshing, setRefreshing] = useState(false);
   const [gpsReady, setGpsReady] = useState(false);
   const [checkingGps, setCheckingGps] = useState(false);
-  const isCheckingGps = useRef(false);
+  const [isLocationBlocked, setIsLocationBlocked] = useState(false);
+  const [isGpsHardwareOff, setIsGpsHardwareOff] = useState(false);
   const [currentLocation, setCurrentLocation] = useState<{latitude: number; longitude: number} | null>(null);
 
-  // --- LOGOUT LOGIC ---
+  const isCheckingGps = useRef(false);
+  const appState = useRef(AppState.currentState);
+
+  // 2. HELPER FUNCTIONS (Non-hooks)
+  const formatDMY = (date: Date) => {
+    const d = String(date.getDate()).padStart(2, '0');
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const y = date.getFullYear();
+    return `${d}-${m}-${y}`;
+  };
+
+  const isToday = (dateStr: string) => {
+    return dateStr === formatDMY(new Date());
+  };
+
+  const generateWeekDays = () => {
+    const today = new Date();
+    const start = new Date(today);
+    start.setDate(today.getDate() - today.getDay());
+    const week = [];
+    for (let i = 0; i < 7; i++) {
+      const temp = new Date(start);
+      temp.setDate(start.getDate() + i);
+      week.push(temp);
+    }
+    return week;
+  };
+
+  // 3. MORE HOOKS (Callbacks, Effects)
+  const weekDays = generateWeekDays();
+
+  const loadAssignments = useCallback(async () => {
+    setLoading(true);
+    try {
+      const userId = await AsyncStorage.getItem('userId');
+      if (!userId) {
+        console.log('Debug: No userId found');
+        return;
+      }
+      const today = new Date();
+      const start = new Date(today);
+      start.setHours(0, 0, 0, 0);
+      start.setDate(start.getDate() - start.getDay());
+      const end = new Date(start);
+      end.setDate(start.getDate() + 6);
+      end.setHours(23, 59, 59, 999);
+
+      const data = await getAssignmentsByUser(
+        userId,
+        start.toISOString(),
+        end.toISOString(),
+      );
+      console.log('Debug Tasks:', data);
+      setTasks(data);
+    } catch (e) {
+      console.log('ERROR:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const checkLocationStatus = useCallback(async () => {
+    console.log("Checking GPS State:", checkingGps);
+    if (isCheckingGps.current) return;
+    const isSilentCheck = gpsReady;
+
+    try {
+      isCheckingGps.current = true;
+      if (!isSilentCheck) setCheckingGps(true);
+      setIsGpsHardwareOff(false); // Reset hardware flag
+
+      console.log('[LocationGate] Verifying permissions...');
+      let hasPermission = false;
+      if (Platform.OS === 'android') {
+        const granted = await PermissionsAndroid.check(
+            PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+        );
+        hasPermission = granted;
+        if (!granted) {
+             const request = await PermissionsAndroid.request(
+                PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+            );
+            hasPermission = request === PermissionsAndroid.RESULTS.GRANTED;
+        }
+      } else {
+        hasPermission = await requestLocationPermission();
+      }
+
+      if (!hasPermission) {
+        console.log('[LocationGate] Permission denied.');
+        setIsLocationBlocked(true);
+        setGpsReady(false);
+      } else {
+        console.log('[LocationGate] Permission granted. Enabling GPS ready state.');
+        setGpsReady(true);
+        setIsLocationBlocked(false);
+      }
+
+    } catch (error) {
+      console.log('[LocationGate] Caught error -> Blocking UI.', error);
+      setIsLocationBlocked(true);
+      setGpsReady(false);
+    } finally {
+        if (!isSilentCheck) setCheckingGps(false);
+        isCheckingGps.current = false;
+    }
+  }, [gpsReady, checkingGps]);
+
+  // Effect: Start Service & Load User Name
+  useEffect(() => {
+    const initAndLoad = async () => {
+        // 1. Init Background Service
+        try {
+            if (Platform.OS === 'android') {
+                console.log('[InitService] Requesting permissions...');
+                const permissionsToRequest = [
+                    PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+                ];
+                
+                // Add POST_NOTIFICATIONS for Android 13+ (API 33+)
+                if (Platform.Version >= 33) {
+                    permissionsToRequest.push(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+                }
+
+                const granted = await PermissionsAndroid.requestMultiple(permissionsToRequest);
+
+                console.log('[InitService] Permissions result:', granted);
+
+                const locationGranted = granted[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] === PermissionsAndroid.RESULTS.GRANTED;
+                const notificationsGranted = Platform.Version >= 33 
+                    ? granted[PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS] === PermissionsAndroid.RESULTS.GRANTED
+                    : true;
+
+                if (locationGranted) {
+                    if (!notificationsGranted) {
+                        console.warn('[InitService] POST_NOTIFICATIONS denied. Service will run without notifications.');
+                    }
+                    try {
+                        console.log('[InitService] Starting background service...');
+                        await startBackgroundLocationService();
+                    } catch (serviceErr) {
+                        console.error('[InitService] Failed to start service:', serviceErr);
+                    }
+                } else {
+                    console.log('[InitService] Location Permission not granted. Service will not start.');
+                }
+            } else {
+                // iOS or other platforms handling
+                 await startBackgroundLocationService();
+            }
+        } catch (err) {
+            console.error('[InitService] Error during initialization:', err);
+        }
+
+        // 2. Load Assignments (Explicitly awaited AFTER service init)
+        console.log('[HomeScreen] Service init done, refreshing assignments...');
+        await loadAssignments();
+
+        // 3. Load Name
+        if (!displayName) {
+            const storedName = await AsyncStorage.getItem('userName');
+            if (storedName) setDisplayName(storedName);
+        }
+    };
+
+    initAndLoad();
+  }, [displayName, loadAssignments]);
+
+  // Effect: AppState Monitor
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (
+        appState.current.match(/inactive|background/) &&
+        nextAppState === 'active'
+      ) {
+        console.log('[AppState] App has come to the foreground! Re-checking location.');
+        checkLocationStatus();
+      }
+      appState.current = nextAppState;
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, [checkLocationStatus]);
+
+  // Effect: Focus (Load data)
+  useFocusEffect(
+    useCallback(() => {
+      loadAssignments();
+      checkLocationStatus();
+    }, [checkLocationStatus, loadAssignments]),
+  );
+
+  // Layout Effect: Header
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity onPress={handleLogout} style={{ marginRight: 15 }}>
+          <Text style={{ color: '#EF4444', fontWeight: 'bold', fontSize: 16 }}>Salir</Text>
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation]);
+
+  // 4. HANDLERS
   const handleLogout = async () => {
     Alert.alert(
       'Cerrar Sesión',
@@ -68,7 +266,6 @@ const TecnicoHomeScreen = () => {
                 'userRole',
                 'userName'
               ]);
-              
               navigation.dispatch(
                 CommonActions.reset({
                   index: 0,
@@ -84,220 +281,88 @@ const TecnicoHomeScreen = () => {
     );
   };
 
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      headerRight: () => (
-        <TouchableOpacity onPress={handleLogout} style={{ marginRight: 15 }}>
-          <Text style={{ color: '#EF4444', fontWeight: 'bold', fontSize: 16 }}>Salir</Text>
-        </TouchableOpacity>
-      ),
-    });
-  }, [navigation]);
-
-  // Convertir Date → "dd-MM-yyyy"
-  const formatDMY = date => {
-    const d = String(date.getDate()).padStart(2, '0');
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const y = date.getFullYear();
-    return `${d}-${m}-${y}`;
-  };
-
-  // Saber si la tarea es hoy
-  const isToday = dateStr => {
-    return dateStr === formatDMY(new Date());
-  };
-
-  // Generar semana Domingo → Sábado
-  const generateWeekDays = () => {
-    const today = new Date();
-    const start = new Date(today);
-    start.setDate(today.getDate() - today.getDay()); // Domingo
-
-    const week = [];
-    for (let i = 0; i < 7; i++) {
-      const temp = new Date(start);
-      temp.setDate(start.getDate() + i);
-      week.push(temp);
-    }
-    return week;
-  };
-
-  const weekDays = generateWeekDays();
-
-  // Cargar tareas
-  const loadAssignments = useCallback(async () => {
-    setLoading(true);
-
-    const userId = await AsyncStorage.getItem('userId');
-
-    // Domingo → 00:00:00
-    const today = new Date();
-    const start = new Date(today);
-    start.setHours(0, 0, 0, 0);
-    start.setDate(start.getDate() - start.getDay());
-
-    // Sábado → 23:59:59
-    const end = new Date(start);
-    end.setDate(start.getDate() + 6);
-    end.setHours(23, 59, 59, 999);
-
-    try {
-      const data = await getAssignmentsByUser(
-        userId,
-        start.toISOString(),
-        end.toISOString(),
-      );
-      setTasks(data);
-    } catch (e) {
-      console.log('ERROR:', e);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // --- GPS Check Robust ---
-  const checkGps = useCallback(async () => {
-    if (gpsReady || isCheckingGps.current) return; // Ya tenemos GPS o estamos chequeando
-
-    console.log('[GPS] Iniciando chequeo...');
-    isCheckingGps.current = true;
-    setCheckingGps(true);
-
-    if (!Geolocation) {
-        console.error('❌ Geolocation module is null! Check native linking.');
-        Alert.alert('Error Crítico', 'El módulo de geolocalización no se cargó correctamente.');
-        setCheckingGps(false);
-        isCheckingGps.current = false;
-        return;
-    }
-    
-    try {
-      let hasPermission = false;
-      
-      // 1. Explicit Permission Request
-      if (Platform.OS === 'android') {
-        console.log('[GPS] Solicitando permiso Android...');
-        const granted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
-        );
-        console.log('[GPS] Resultado permiso:', granted);
-        hasPermission = granted === PermissionsAndroid.RESULTS.GRANTED;
-      } else {
-        hasPermission = await requestLocationPermission();
-      }
-
-      if (!hasPermission) {
-        console.log('[GPS] Permiso denegado');
-        Alert.alert('Permiso denegado', 'Habilita el permiso de ubicación en ajustes.');
-        setCheckingGps(false);
-        isCheckingGps.current = false;
-        return;
-      }
-
-      // 2. Fetch Position using @react-native-community/geolocation
-      console.log('[GPS] Solicitando coordenadas con @react-native-community/geolocation...');
-      Geolocation.getCurrentPosition(
-        (pos) => {
-          console.log('[GPS] Éxito:', pos.coords);
-          console.log(`[GPS] Coordenadas recibidas: Lat ${pos.coords.latitude}, Lng ${pos.coords.longitude}`); // Log real coordinates
-          if (pos.coords.latitude !== 0 || pos.coords.longitude !== 0) {
-            setGpsReady(true);
-            setCurrentLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }); // Store real coords
-          }
-          setCheckingGps(false);
-          isCheckingGps.current = false;
-        },
-        (err) => {
-          console.log('[GPS] Error obteniendo posición:', err);
-          Alert.alert('Error GPS', `No se pudo obtener ubicación: ${err.message}`);
-          setCheckingGps(false);
-          isCheckingGps.current = false;
-        },
-        { 
-          enableHighAccuracy: false, 
-          timeout: 30000, 
-          maximumAge: 1000 
-        }
-      );
-    } catch (e) {
-      console.log('[GPS] Excepción en checkGps:', e);
-      setCheckingGps(false);
-      isCheckingGps.current = false;
-    }
-  }, [gpsReady]);
-
-  useFocusEffect(
-    useCallback(() => {
-      loadAssignments();
-      checkGps();
-    }, []),
-  );
-
   const onRefresh = async () => {
     setRefreshing(true);
-    checkGps(); // Reintentar GPS al hacer pull
+    await checkLocationStatus();
     await loadAssignments();
     setRefreshing(false);
   };
 
-  const handleCheckIn = async (item) => {
-    // Basic check if GPS permission/module is ready, although we will force a fresh read.
-    // We can keep checking gpsReady to ensure the initial setup passed.
-    if (!gpsReady) {
-      console.log('[GPS] GPS not ready yet.');
-      Alert.alert('GPS no listo', 'Espera a que el GPS esté listo.');
-      return;
-    }
-
+  const handleCheckIn = async (item: any) => {
     try {
-      // FORCE FRESH GPS READ
       const getFreshLocation = () => {
         return new Promise<any>((resolve, reject) => {
           Geolocation.getCurrentPosition(
             (pos) => resolve(pos.coords),
             (err) => reject(err),
-            { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 } // Force fresh
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
           );
         });
       };
-
-      console.log('[handleCheckIn] Obteniendo ubicación fresca...');
       const freshCoords = await getFreshLocation();
-      console.log('[handleCheckIn] Ubicación fresca:', freshCoords.latitude, freshCoords.longitude);
-
       const now = toLocalISOString(new Date());
-      // Si ya tiene checkIn, usarlo. Si no, usar ahora.
       const checkInDate = item.checkIn ? item.checkIn : now;
-
       const payload = {
         checkIn: checkInDate,
         currentLocation: {
           latitude: freshCoords.latitude,
           longitude: freshCoords.longitude,
-          UpdatedAt: new Date().toISOString(), // PascalCase y UTC
+          UpdatedAt: new Date().toISOString(),
         },
       };
-
-      // Llamar SIEMPRE a la API para actualizar ubicación (aunque ya esté iniciada)
       await startAssignment(item.id, payload);
-      console.log('Check-In/Update registrado con éxito.');
-
       navigation.navigate('StartAssignmentScreen', {
         assignmentId: item.id,
         latitude: freshCoords.latitude,
         longitude: freshCoords.longitude,
         checkIn: checkInDate,
       });
-      
-      // Actualizar lista
       loadAssignments();
-
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error al hacer Check-In:', error);
-      Alert.alert('Error', 'No se pudo obtener ubicación o iniciar tarea.');
+      if (error?.code === 3) {
+          Alert.alert('Error de Conexión GPS', 'No se pudo obtener la ubicación. Por favor, verifica que el GPS esté activo y tengas buena señal.');
+      } else {
+          Alert.alert('Error', 'No se pudo obtener ubicación o iniciar tarea.');
+      }
     }
   };
 
+  // 5. CONDITIONAL RENDER (MUST BE LAST)
+  if (isLocationBlocked) {
+      return (
+          <SafeAreaView style={[styles.container, styles.centerContent]}>
+              <Text style={styles.blockTitle}>Ubicación Requerida</Text>
+              <Text style={styles.blockText}>
+                  {isGpsHardwareOff 
+                    ? 'El GPS está desactivado. Por favor, actívalo para continuar.' 
+                    : 'Para utilizar esta aplicación, es necesario que otorgues los permisos de ubicación.'}
+              </Text>
+              <TouchableOpacity
+                  style={styles.fixButton}
+                  onPress={() => {
+                    if (isGpsHardwareOff && Platform.OS === 'android') {
+                        Linking.sendIntent("android.settings.LOCATION_SOURCE_SETTINGS");
+                    } else {
+                        Linking.openSettings();
+                    }
+                  }}
+              >
+                  <Text style={styles.fixButtonText}>
+                    {isGpsHardwareOff ? 'Activar GPS' : 'Ir a Configuración'}
+                  </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                  style={styles.retryLink}
+                  onPress={checkLocationStatus}
+              >
+                  <Text style={styles.retryLinkText}>Reintentar</Text>
+              </TouchableOpacity>
+          </SafeAreaView>
+      );
+  }
+
+  // 6. MAIN RENDER
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#F3F4F6' }}>
     <ScrollView
@@ -317,8 +382,7 @@ const TecnicoHomeScreen = () => {
 
           {weekDays.map((day, index) => {
             const formatted = formatDMY(day);
-
-            const dayTasks = tasks.filter(t => t.assignedDate === formatted);
+            const dayTasks = tasks.filter((t: any) => t.assignedDate === formatted);
 
             return (
               <View key={index} style={styles.dayBlock}>
@@ -335,13 +399,11 @@ const TecnicoHomeScreen = () => {
                 {dayTasks.length === 0 ? (
                   <Text style={styles.noTask}>No hay tareas</Text>
                 ) : (
-                  dayTasks.map(item => {
+                  dayTasks.map((item: any) => {
                     const enabled = isToday(item.assignedDate);
-
                     return (
                       <View key={item.id} style={styles.card}>
                         <Text style={styles.client}>{item.client}</Text>
-
                         <Text style={styles.field}>
                           Servicio: {item.service}
                         </Text>
@@ -351,37 +413,29 @@ const TecnicoHomeScreen = () => {
                         <Text style={styles.field}>
                           Hora: {item.assignedTime}
                         </Text>
-
-                        {/* NUEVOS CAMPOS */}
                         <Text style={styles.field}>Estado: {item.status}</Text>
                         <Text style={styles.field}>
                           Agendado por: {item.createdByUser}
                         </Text>
-
                         <TouchableOpacity
                           style={[
                             styles.startButton,
-                            ((!enabled && !item.checkIn) || (!gpsReady && checkingGps)) && styles.disabledButton,
-                            (!gpsReady && !checkingGps && enabled && !item.checkIn) && styles.retryButton,
+                            (!enabled && !item.checkIn) && styles.disabledButton,
                             !!item.checkIn && styles.inProgressButton,
                           ]}
-                          disabled={(!enabled && !item.checkIn) || (!gpsReady && checkingGps)}
+                          disabled={!enabled && !item.checkIn}
                           onPress={() => {
                             if (!enabled && !item.checkIn) return;
                             handleCheckIn(item);
                           }}
                         >
-                          {(enabled || item.checkIn) && !gpsReady && checkingGps ? (
-                            <ActivityIndicator size="small" color="#ffffff" />
-                          ) : (
-                            <Text style={styles.buttonText}>
+                          <Text style={styles.buttonText}>
                               {item.checkIn
                                 ? 'Servicio en Progreso'
                                 : enabled
-                                ? (gpsReady ? 'Iniciar' : 'Reintentar GPS')
+                                ? 'Iniciar'
                                 : 'No disponible'}
                             </Text>
-                          )}
                         </TouchableOpacity>
                       </View>
                     );
@@ -404,6 +458,44 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     backgroundColor: '#F3F4F6',
+  },
+  centerContent: {
+      justifyContent: 'center',
+      alignItems: 'center',
+  },
+  blockTitle: {
+      fontSize: 24,
+      fontWeight: 'bold',
+      color: '#EF4444',
+      marginBottom: 10,
+      textAlign: 'center',
+  },
+  blockText: {
+      fontSize: 16,
+      color: '#374151',
+      textAlign: 'center',
+      marginBottom: 20,
+      paddingHorizontal: 20,
+  },
+  fixButton: {
+      backgroundColor: '#2563EB',
+      paddingHorizontal: 20,
+      paddingVertical: 12,
+      borderRadius: 8,
+      marginBottom: 15,
+  },
+  fixButtonText: {
+      color: 'white',
+      fontWeight: 'bold',
+      fontSize: 16,
+  },
+  retryLink: {
+      padding: 10,
+  },
+  retryLinkText: {
+      color: '#2563EB',
+      textDecorationLine: 'underline',
+      fontSize: 16,
   },
   title: {
     fontSize: 28,

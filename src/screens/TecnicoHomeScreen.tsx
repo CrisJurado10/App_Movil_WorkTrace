@@ -23,7 +23,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getAssignmentsByUser } from '../api/assignment';
 import { startAssignment } from '../api/assignmentStart';
-import Geolocation from '@react-native-community/geolocation';
+import Geolocation from 'react-native-geolocation-service';
 import { requestLocationPermission } from '../utils/requestLocationPermission';
 import { toLocalISOString } from '../utils/dateUtils';
 import { startBackgroundLocationService } from '../services/BackgroundLocationService';
@@ -190,7 +190,11 @@ const TecnicoHomeScreen = () => {
                 }
             } else {
                 // iOS or other platforms handling
-                 await startBackgroundLocationService();
+                 try {
+                    await startBackgroundLocationService();
+                 } catch (iosServiceErr) {
+                    console.error('[InitService] Failed to start service (iOS/other):', iosServiceErr);
+                 }
             }
         } catch (err) {
             console.error('[InitService] Error during initialization:', err);
@@ -204,6 +208,33 @@ const TecnicoHomeScreen = () => {
         if (!displayName) {
             const storedName = await AsyncStorage.getItem('userName');
             if (storedName) setDisplayName(storedName);
+        }
+
+        // 4. Battery Optimization Check (Android)
+        if (Platform.OS === 'android') {
+            const hasAsked = await AsyncStorage.getItem('hasAskedBatteryOpt');
+            if (!hasAsked) {
+                Alert.alert(
+                    "Optimización de Batería",
+                    "Para garantizar que el GPS funcione en segundo plano, WorkTrace necesita ser excluida de la optimización de batería. Por favor selecciona 'Permitir' o 'Sin restricciones' en la siguiente pantalla.",
+                    [
+                        { text: "Cancelar", style: "cancel" },
+                        { 
+                            text: "Abrir Configuración", 
+                            onPress: async () => {
+                                await AsyncStorage.setItem('hasAskedBatteryOpt', 'true');
+                                try {
+                                    // Opens the list of apps to ignore battery optimizations
+                                    await Linking.sendIntent("android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS");
+                                } catch (e) {
+                                    console.error("Failed to open battery settings:", e);
+                                    Linking.openSettings();
+                                }
+                            } 
+                        }
+                    ]
+                );
+            }
         }
     };
 
@@ -295,7 +326,7 @@ const TecnicoHomeScreen = () => {
           Geolocation.getCurrentPosition(
             (pos) => resolve(pos.coords),
             (err) => reject(err),
-            { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000, forceRequestLocation: true, showLocationDialog: true }
           );
         });
       };

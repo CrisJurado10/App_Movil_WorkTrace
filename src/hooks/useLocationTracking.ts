@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Linking, Platform } from 'react-native';
-import Geolocation from '@react-native-community/geolocation';
+import Geolocation from 'react-native-geolocation-service';
 import { startAssignment, updateLocation } from '../api/assignmentStart';
 import { requestLocationPermission } from '../utils/requestLocationPermission';
 

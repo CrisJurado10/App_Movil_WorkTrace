@@ -63,6 +63,17 @@ export const LocationTask = async (data: any) => {
 
             // Send coordinates
             for (const assignment of activeAssignments) {
+                // Skip if assignment was locally marked as finished
+                try {
+                    const rawFinished = await AsyncStorage.getItem('finishedAssignments');
+                    const finishedArr = rawFinished ? JSON.parse(rawFinished) : [];
+                    if (finishedArr.includes(String(assignment.id))) {
+                        log(`Assignment ${assignment.id} is locally finished; skipping location update.`);
+                        continue;
+                    }
+                } catch (e) {
+                    // ignore storage errors and proceed
+                }
                 try {
                     const payload = {
                         currentLocation: {

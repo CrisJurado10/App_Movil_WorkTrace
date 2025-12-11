@@ -9,16 +9,26 @@ interface Props {
   enabled: boolean;
   intervalMs: number;
   onLocationUpdate?: (coords: string) => void;
+  onFinish?: () => void;
 }
 
 type Coords = { lat: number; lng: number };
 
 const DEFAULT_COORDS: Coords = { lat: 0, lng: 0 };
 
-const useLocationTracking = ({ assignmentId, enabled, intervalMs, onLocationUpdate }: Props) => {
+const useLocationTracking = ({ assignmentId, enabled, intervalMs, onLocationUpdate, onFinish }: Props) => {
   const [hasCheckedIn, setHasCheckedIn] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const askingPermissionRef = useRef(false);
+
+  // --- Función para detener el tracking ---
+  const stopTracking = () => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+      console.log('🛑 Ubicación tracking detenido');
+    }
+  };
 
   // --- Helper: pedir ubicación con mejor manejo ---
   const getLocation = (): Promise<Coords> => {
@@ -232,7 +242,7 @@ const useLocationTracking = ({ assignmentId, enabled, intervalMs, onLocationUpda
     };
   }, [enabled]);
 
-  return {};
+  return { stopTracking };
 };
 
 export default useLocationTracking;

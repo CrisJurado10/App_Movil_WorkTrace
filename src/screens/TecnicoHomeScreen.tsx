@@ -95,7 +95,17 @@ const TecnicoHomeScreen = () => {
         end.toISOString(),
       );
       console.log('Debug Tasks:', data);
-      setTasks(data);
+      // Read locally finished assignments and mark them
+      try {
+        const raw = await AsyncStorage.getItem('finishedAssignments');
+        const finished = raw ? JSON.parse(raw) : [];
+        const augmented = data.map((d: any) => ({ ...d, _locallyFinished: finished.includes(String(d.id)) }));
+        setTasks(augmented);
+        return augmented;
+      } catch (e) {
+        setTasks(data);
+        return data;
+      }
     } catch (e) {
       console.log('ERROR:', e);
     } finally {
@@ -153,56 +163,69 @@ const TecnicoHomeScreen = () => {
   // Effect: Start Service & Load User Name
   useEffect(() => {
     const initAndLoad = async () => {
-        // 1. Init Background Service
-        try {
-            if (Platform.OS === 'android') {
-                console.log('[InitService] Requesting permissions...');
-                const permissionsToRequest = [
-                    PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-                ];
-                
-                // Add POST_NOTIFICATIONS for Android 13+ (API 33+)
-                if (Platform.Version >= 33) {
-                    permissionsToRequest.push(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
-                }
+      try {
+        // 1. Load Assignments first
+            console.log('[HomeScreen] Loading assignments...');
+            const data = await loadAssignments();
 
-                const granted = await PermissionsAndroid.requestMultiple(permissionsToRequest);
+            // 2. Init Background Service ONLY if there are active assignments and permissions
+            // Exclude locally finished assignments from active check
+            const active = data && data.some((a: any) => {
+              if (a._locallyFinished) return false;
+              return a.status === 'In Progress' || a.status === 'Started' || (a.checkIn && a.status !== 'Completed');
+            });
 
-                console.log('[InitService] Permissions result:', granted);
+        if (Platform.OS === 'android') {
+          console.log('[InitService] Requesting permissions...');
+          const permissionsToRequest = [
+            PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+          ];
+          // Add POST_NOTIFICATIONS for Android 13+ (API 33+)
+          if (Platform.Version >= 33) {
+            permissionsToRequest.push(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+          }
 
-                const locationGranted = granted[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] === PermissionsAndroid.RESULTS.GRANTED;
-                const notificationsGranted = Platform.Version >= 33 
-                    ? granted[PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS] === PermissionsAndroid.RESULTS.GRANTED
-                    : true;
+          const granted = await PermissionsAndroid.requestMultiple(permissionsToRequest);
+          console.log('[InitService] Permissions result:', granted);
 
-                if (locationGranted) {
-                    if (!notificationsGranted) {
-                        console.warn('[InitService] POST_NOTIFICATIONS denied. Service will run without notifications.');
-                    }
-                    try {
-                        console.log('[InitService] Starting background service...');
-                        await startBackgroundLocationService();
-                    } catch (serviceErr) {
-                        console.error('[InitService] Failed to start service:', serviceErr);
-                    }
-                } else {
-                    console.log('[InitService] Location Permission not granted. Service will not start.');
-                }
-            } else {
-                // iOS or other platforms handling
-                 try {
-                    await startBackgroundLocationService();
-                 } catch (iosServiceErr) {
-                    console.error('[InitService] Failed to start service (iOS/other):', iosServiceErr);
-                 }
+          const locationGranted = granted[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] === PermissionsAndroid.RESULTS.GRANTED;
+          const notificationsGranted = Platform.Version >= 33 
+            ? granted[PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS] === PermissionsAndroid.RESULTS.GRANTED
+            : true;
+
+          if (locationGranted && active) {
+            if (!notificationsGranted) {
+              console.warn('[InitService] POST_NOTIFICATIONS denied. Service will run without notifications.');
             }
-        } catch (err) {
-            console.error('[InitService] Error during initialization:', err);
+            try {
+              console.log('[InitService] Starting background service...');
+              await startBackgroundLocationService();
+            } catch (serviceErr) {
+              console.error('[InitService] Failed to start service:', serviceErr);
+            }
+          } else {
+            console.log('[InitService] Location Permission not granted or no active assignments. Service will not start.');
+          }
+        } else {
+          // iOS or other platforms handling: start only if active assignments
+          if (active) {
+            try {
+              await startBackgroundLocationService();
+            } catch (iosServiceErr) {
+              console.error('[InitService] Failed to start service (iOS/other):', iosServiceErr);
+            }
+          }
         }
 
-        // 2. Load Assignments (Explicitly awaited AFTER service init)
-        console.log('[HomeScreen] Service init done, refreshing assignments...');
-        await loadAssignments();
+        
+        // 3. Load Name
+        if (!displayName) {
+          const storedName = await AsyncStorage.getItem('userName');
+          if (storedName) setDisplayName(storedName);
+        }
+      } catch (err) {
+        console.error('[InitService] Error during initialization:', err);
+      }
 
         // 3. Load Name
         if (!displayName) {
@@ -432,6 +455,7 @@ const TecnicoHomeScreen = () => {
                 ) : (
                   dayTasks.map((item: any) => {
                     const enabled = isToday(item.assignedDate);
+                    const localFinished = !!item._locallyFinished;
                     return (
                       <View key={item.id} style={styles.card}>
                         <Text style={styles.client}>{item.client}</Text>
@@ -453,15 +477,19 @@ const TecnicoHomeScreen = () => {
                             styles.startButton,
                             (!enabled && !item.checkIn) && styles.disabledButton,
                             !!item.checkIn && styles.inProgressButton,
+                            localFinished && styles.finishedButton,
                           ]}
-                          disabled={!enabled && !item.checkIn}
+                          disabled={localFinished || (!enabled && !item.checkIn)}
                           onPress={() => {
+                            if (localFinished) return;
                             if (!enabled && !item.checkIn) return;
                             handleCheckIn(item);
                           }}
                         >
                           <Text style={styles.buttonText}>
-                              {item.checkIn
+                              {localFinished
+                                ? 'Finalizado'
+                                : item.checkIn
                                 ? 'Servicio en Progreso'
                                 : enabled
                                 ? 'Iniciar'
@@ -599,6 +627,9 @@ const styles = StyleSheet.create({
   },
   inProgressButton: {
     backgroundColor: '#F97316', // Orange
+  },
+  finishedButton: {
+    backgroundColor: '#10B981', // green to indicate finished
   },
   buttonText: {
     fontSize: 15,

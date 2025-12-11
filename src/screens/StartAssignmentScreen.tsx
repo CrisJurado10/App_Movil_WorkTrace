@@ -17,6 +17,15 @@ import {
 import ImagePicker from 'react-native-image-crop-picker';
 import useLocationTracking from '../hooks/useLocationTracking';
 import { updateProgress, finishAssignment } from '../api/assignmentStart';
+import { CommonActions } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// Interfaz para los archivos de media
+interface UploadFile {
+  uri: string;
+  type: string;
+  name?: string;
+}
 
 const StartAssignmentScreen = ({ route, navigation }) => {
   const { assignmentId } = route.params;
@@ -25,11 +34,12 @@ const StartAssignmentScreen = ({ route, navigation }) => {
   const [lastCoords, setLastCoords] = useState<string>('');
 
   const [comment, setComment] = useState<string>('');
-  const [mediaFiles, setMediaFiles] = useState<{ uri: string; type: string; name?: string }[]>([]);
+  const [mediaFiles, setMediaFiles] = useState<UploadFile[]>([]);
   const [sendingProgress, setSendingProgress] = useState(false);
   const [finishing, setFinishing] = useState(false);
 
-  useLocationTracking({
+  // Obtener stopTracking del hook
+  const { stopTracking } = useLocationTracking({
     assignmentId,
     enabled: true,
     intervalMs: 30000,
@@ -106,7 +116,7 @@ const StartAssignmentScreen = ({ route, navigation }) => {
   };
 
   
-const buildFormData = (commentText: string, files: UploadFile[]) => {
+const buildFormData = (commentText: string, files: UploadFile[]): FormData => {
   const fd = new FormData();
   if (commentText) fd.append('Comment', commentText);
   files.forEach(file => {
@@ -139,11 +149,55 @@ const buildFormData = (commentText: string, files: UploadFile[]) => {
     try {
       setFinishing(true);
       const checkout = new Date().toISOString();
+      
+      // 1. Detener el envío de ubicación local inmediatamente (interval del hook)
+      stopTracking();
+      console.log('📍 Tracking detenido antes de finalizar tarea');
+      
+      // 2. Enviar el check-out
       await finishAssignment(assignmentId, { checkOut: checkout });
-      Alert.alert('Tarea finalizada', 'Check-Out registrado.');
-      navigation.goBack();
+      
+      // 3. Mostrar alerta y navegar después de confirmar
+      Alert.alert(
+        'Tarea finalizada',
+        'Check-Out registrado. Volviendo al inicio...',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              // 4. Guardar localmente que esta asignación fue finalizada (para evitar reentrada)
+              (async () => {
+                try {
+                  const raw = await AsyncStorage.getItem('finishedAssignments');
+                  const arr = raw ? JSON.parse(raw) : [];
+                  const strId = String(assignmentId);
+                  if (!arr.includes(strId)) {
+                    arr.push(strId);
+                    await AsyncStorage.setItem('finishedAssignments', JSON.stringify(arr));
+                  }
+                } catch (e) {
+                  console.warn('No se pudo guardar finishedAssignments:', e);
+                }
+                // Navegar de vuelta a TecnicoHome (reset para forzar recarga)
+                navigation.dispatch(
+                  CommonActions.reset({
+                    index: 0,
+                    routes: [{ name: 'TecnicoHome' }],
+                  })
+                );
+              })();
+            },
+          },
+        ],
+        { cancelable: false }
+      );
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'No se pudo finalizar la tarea.');
+      // Detener tracking incluso si hay error
+      stopTracking();
+      Alert.alert(
+        'Error',
+        err.message || 'No se pudo finalizar la tarea.'
+      );
     } finally {
       setFinishing(false);
     }

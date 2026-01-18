@@ -199,9 +199,12 @@ const TakenRequirementCreateScreen: React.FC<Props> = ({ navigation }) => {
 
         {selectedClient ? (
           <View style={styles.clientCard}>
-            <Text style={styles.clientName}>{selectedClient.fullName}</Text>
+            <Text style={styles.clientName}>Nombre: {selectedClient.fullName}</Text>
+            <Text style={styles.clientDocumentNumber}>C.I. o RUC :{selectedClient.documentNumber}</Text>
+            <Text style={styles.clientPhone}>Teléfono: {selectedClient.phoneNumber}</Text>
+            <Text style={styles.cleintEmail}>Email: {selectedClient.email}</Text>
             <TouchableOpacity onPress={handleRemoveClient}>
-              <Text style={styles.changeText}>Cambiar</Text>
+              <Text style={styles.changeText}>Remover Cliente</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -271,8 +274,11 @@ const styles = StyleSheet.create({
   contentContainer: { padding: 16 },
   sectionTitle: { marginTop: 16, fontWeight: '700' },
   clientCard: { backgroundColor: '#e8f4f8', padding: 12, borderRadius: 8 },
-  clientName: { fontWeight: '700' },
-  changeText: { color: '#007AFF', marginTop: 6 },
+  clientName: { fontStyle: 'italic', fontSize: 18, fontWeight: 'bold' },
+  clientDocumentNumber: { fontSize: 15, fontWeight: '500', marginTop: 1 },
+  clientPhone : { fontSize: 15, fontWeight: '500' },
+  cleintEmail : { fontSize: 15, fontWeight: '500' },
+  changeText: { fontSize: 17, color: '#ff0000', marginTop: 4 },
   row: { flexDirection: 'row', gap: 8, marginTop: 8 },
   searchButton: {
     flex: 1,

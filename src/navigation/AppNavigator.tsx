@@ -8,7 +8,10 @@ import LoginScreen from '../screens/LoginScreen';
 import HomeScreen from '../screens/HomeScreen';
 import TecnicoHomeScreen from '../screens/TecnicoHomeScreen';
 import VendedorHomeScreen from '../screens/VendedorHomeScreen';
-import StartAssignmentScreen from '../screens/StartAssignmentScreen'; // <-- IMPORTANTE
+import StartAssignmentScreen from '../screens/StartAssignmentScreen';
+import TakenRequirementCreateScreen from '../screens/TakenRequirementCreateScreen';
+//import TakenRequirementEditScreen from '../screens/TakenRequirementEditScreen';
+import ClientCreateScreen from '../screens/ClientCreateScreen';
 
 const Stack = createStackNavigator();
 
@@ -71,13 +74,29 @@ const AppNavigator = () => {
         component={VendedorHomeScreen}
       />
 
-      {/* 👇 ESTA ES LA QUE FALTABA */}
-      <Stack.Screen 
+      <Stack.Screen
         name="StartAssignmentScreen"
         component={StartAssignmentScreen}
-        options={{ title: "Iniciar Asignación" }}
+        options={{ title: 'Iniciar Asignación' }}
       />
 
+      <Stack.Screen
+        name="TakenRequirementCreate"
+        component={TakenRequirementCreateScreen}
+        options={{ headerShown: false, title: 'Nuevo Requerimiento' }}
+      />
+
+      <Stack.Screen
+        name="ClientCreate"
+        component={ClientCreateScreen}
+        options={{ title: 'Crear Cliente' }}
+      />
+
+      {/* <Stack.Screen
+        name="TakenRequirementEdit"
+        component={TakenRequirementEditScreen}
+        options={{ headerShown: false, title: 'Editar Requerimiento' }}
+      />  */}
     </Stack.Navigator>
   );
 };

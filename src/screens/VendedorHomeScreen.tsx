@@ -7,6 +7,7 @@ import {
   Text,
   ActivityIndicator,
   Alert,
+  InteractionManager,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
@@ -15,7 +16,6 @@ import {
 } from "@react-navigation/native";
 import {
   getTakenRequirementsByUserAndDateRange,
-  getClientById,
 } from "../api/takenRequirement";
 
 interface Props {
@@ -29,6 +29,9 @@ const VendedorHomeScreen: React.FC<Props> = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  /* =======================
+     LOGOUT
+     ======================= */
   const handleLogout = () => {
     Alert.alert(
       "Cerrar Sesión",
@@ -64,6 +67,9 @@ const VendedorHomeScreen: React.FC<Props> = ({ navigation }) => {
     );
   };
 
+  /* =======================
+     LOAD DATA
+     ======================= */
   useFocusEffect(
     useCallback(() => {
       loadData();
@@ -109,21 +115,8 @@ const VendedorHomeScreen: React.FC<Props> = ({ navigation }) => {
       const normalize = (data: any) =>
         Array.isArray(data) ? data : data ? [data] : [];
 
-      const enrichWithClient = async (items: any[]) =>
-        Promise.all(
-          items.map(async (it) => {
-            if (!it.clientId) return it;
-            try {
-              const client = await getClientById(it.clientId);
-              return { ...it, client };
-            } catch {
-              return it;
-            }
-          })
-        );
-
-      const todayItems = await enrichWithClient(normalize(todayRaw));
-      const twoDaysItems = await enrichWithClient(normalize(twoDaysRaw));
+      const todayItems = normalize(todayRaw);
+      const twoDaysItems = normalize(twoDaysRaw);
 
       const groups: { label: string; data: any[] }[] = [];
 
@@ -155,15 +148,20 @@ const VendedorHomeScreen: React.FC<Props> = ({ navigation }) => {
      ACTIONS
      ======================= */
   const handleEditRequirement = (requirement: any) => {
-    navigation.navigate("TakenRequirementEdit", {
+    navigation.push("TakenRequirementEdit", {
       requirementToEdit: requirement,
     });
   };
 
   const handleCreateNew = () => {
-    navigation.navigate("TakenRequirementCreate");
+    InteractionManager.runAfterInteractions(() => {
+      navigation.push("TakenRequirementCreate");
+    });
   };
 
+  /* =======================
+     RENDER ITEM
+     ======================= */
   const renderRequirement = (item: any) => (
     <View style={styles.requirementCard}>
       <Text style={styles.cardTitle}>{item.title}</Text>
@@ -171,14 +169,15 @@ const VendedorHomeScreen: React.FC<Props> = ({ navigation }) => {
         {item.description}
       </Text>
       <Text style={styles.cardDate}>
-        {new Date(item.date || item.createdAt).toLocaleString()}
+        {new Date(item.date).toLocaleString()}
       </Text>
 
       {item.client && (
         <View style={styles.clientSection}>
-          <Text style={styles.clientName}>{item.client.fullName}</Text>
-          <Text style={styles.clientInfo}>{item.client.email}</Text>
-          <Text style={styles.clientInfo}>{item.client.phoneNumber}</Text>
+          <Text style={styles.clientName}>Cliente: {item.client.fullName}</Text>
+          <Text style={styles.clientInfo}>Correo: {item.client.email}</Text>
+          <Text style={styles.clientInfo}>Documento: {item.client.documentNumber}</Text>
+          <Text style={styles.clientInfo}>Teléfono: {item.client.phoneNumber}</Text>
         </View>
       )}
 
@@ -191,6 +190,9 @@ const VendedorHomeScreen: React.FC<Props> = ({ navigation }) => {
     </View>
   );
 
+  /* =======================
+     LOADING
+     ======================= */
   if (loading) {
     return (
       <View style={styles.centerContainer}>
@@ -199,6 +201,9 @@ const VendedorHomeScreen: React.FC<Props> = ({ navigation }) => {
     );
   }
 
+  /* =======================
+     UI
+     ======================= */
   return (
     <View style={styles.container}>
       {/* HEADER */}
@@ -220,8 +225,8 @@ const VendedorHomeScreen: React.FC<Props> = ({ navigation }) => {
             <View style={styles.groupHeader}>
               <Text style={styles.groupLabel}>{item.label}</Text>
             </View>
-            {item.data.map((req) => (
-              <View key={req.id || req._id}>{renderRequirement(req)}</View>
+            {item.data.map((req: any) => (
+              <View key={req.id}>{renderRequirement(req)}</View>
             ))}
           </View>
         )}
@@ -234,6 +239,9 @@ const VendedorHomeScreen: React.FC<Props> = ({ navigation }) => {
   );
 };
 
+/* =======================
+   STYLES (SIN CAMBIOS)
+   ======================= */
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f5f5f5" },
   centerContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
@@ -263,7 +271,7 @@ const styles = StyleSheet.create({
   groupLabel: { fontSize: 13, fontWeight: "700", color: "#007AFF" },
 
   requirementCard: {
-    backgroundColor: "#fff",
+    backgroundColor: "#d3f8be",
     borderRadius: 8,
     padding: 16,
     marginBottom: 12,
@@ -276,7 +284,7 @@ const styles = StyleSheet.create({
   clientSection: {
     marginTop: 10,
     padding: 10,
-    backgroundColor: "#f0f8ff",
+    backgroundColor: "#e4eaf0",
     borderRadius: 6,
   },
   clientName: { fontSize: 14, fontWeight: "600" },

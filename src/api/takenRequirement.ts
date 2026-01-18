@@ -4,15 +4,30 @@ import { parseValidationErrors } from '../constants/validationRules';
 
 const API_URL = 'http://192.168.100.3:5284';
 
-/* =======================
-   INTERFACES
-   ======================= */
 export interface ClientInformationResponse {
   id: string;
   fullName: string;
   documentNumber: string;
   email: string;
   phoneNumber: string;
+}
+
+export interface TakenRequirementInformationResponse {
+  id: string;
+  userId: string;
+  clientId?: string | null;
+  date: string;
+  title: string;
+  description: string;
+}
+
+export interface TakenRequirementWithClientResponse {
+  id: string;
+  userId: string;
+  title: string;
+  description: string;
+  date: string;
+  client?: ClientInformationResponse | null;
 }
 
 export interface CreateClientRequest {
@@ -36,9 +51,6 @@ export interface UpdateTakenRequirementRequest {
   description: string;
 }
 
-/* =======================
-   CLIENTES
-   ======================= */
 export const searchClientByDoc = async (documentNumber: string) => {
   const token = await AsyncStorage.getItem('userToken');
 
@@ -92,15 +104,11 @@ export const createClient = async (
   }
 };
 
-/* =======================
-   CREATE TAKEN REQUIREMENT (FIX REAL)
-   ======================= */
 export const createTakenRequirement = async (
   payload: CreateTakenRequirementRequest
-) => {
+): Promise<TakenRequirementInformationResponse> => {
   const token = await AsyncStorage.getItem('userToken');
 
-  // 🔥 CLAVE: NO enviar ClientId si es null
   const body: any = {
     UserId: payload.userId,
     Title: payload.title,
@@ -112,11 +120,6 @@ export const createTakenRequirement = async (
   }
 
   try {
-    console.log(
-      'Creating taken requirement payload:',
-      JSON.stringify(body, null, 2)
-    );
-
     const response = await axios.post(
       `${API_URL}/TakenRequirements/Create`,
       body,
@@ -127,32 +130,24 @@ export const createTakenRequirement = async (
         },
       }
     );
+
     return response.data;
   } catch (error: any) {
-    console.error('CreateTakenRequirement Error:', {
-      status: error.response?.status,
-      data: error.response?.data,
-      payload: body,
-    });
-
     const validationErrors = parseValidationErrors(error);
     throw {
       validationErrors,
       message:
-        error.response?.data?.title ||
         error.response?.data?.message ||
+        error.response?.data?.title ||
         'Error al crear requerimiento',
       status: error.response?.status,
     };
   }
 };
 
-/* =======================
-   UPDATE TAKEN REQUIREMENT
-   ======================= */
 export const updateTakenRequirement = async (
   payload: UpdateTakenRequirementRequest
-) => {
+): Promise<TakenRequirementInformationResponse> => {
   const token = await AsyncStorage.getItem('userToken');
 
   const body: any = {
@@ -160,7 +155,7 @@ export const updateTakenRequirement = async (
     Description: payload.description,
   };
 
-  if (payload.clientId) {
+  if (payload.clientId !== undefined) {
     body.ClientId = payload.clientId;
   }
 
@@ -175,44 +170,32 @@ export const updateTakenRequirement = async (
         },
       }
     );
+
     return response.data;
   } catch (error: any) {
     const validationErrors = parseValidationErrors(error);
     throw {
       validationErrors,
-      message: error.response?.data?.title || 'Error al actualizar requerimiento',
+      message:
+        error.response?.data?.message ||
+        error.response?.data?.title ||
+        'Error al actualizar requerimiento',
       status: error.response?.status,
     };
   }
 };
 
-/* =======================
-   GETTERS
-   ======================= */
 export const getTakenRequirementsByUserAndDateRange = async (
   userId: string,
   start: string,
   end: string
-) => {
+): Promise<TakenRequirementWithClientResponse[]> => {
   const token = await AsyncStorage.getItem('userToken');
 
   const response = await axios.get(
     `${API_URL}/TakenRequirements/GetByUserAndDateRange/user-taken-requirement/${userId}?start=${encodeURIComponent(
       start
     )}&end=${encodeURIComponent(end)}`,
-    {
-      headers: { Authorization: `Bearer ${token}` },
-    }
-  );
-
-  return response.data;
-};
-
-export const getClientById = async (clientId: string) => {
-  const token = await AsyncStorage.getItem('userToken');
-
-  const response = await axios.get(
-    `${API_URL}/Client/GetById?id=${encodeURIComponent(clientId)}`,
     {
       headers: { Authorization: `Bearer ${token}` },
     }

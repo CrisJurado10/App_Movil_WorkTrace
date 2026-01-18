@@ -57,11 +57,11 @@ export const searchClientByDoc = async (documentNumber: string) => {
   try {
     const response = await axios.get(
       `${API_URL}/Client/GetByDocumentNumber/by-docnum?documentNumber=${encodeURIComponent(
-        documentNumber
+        documentNumber,
       )}`,
       {
         headers: { Authorization: `Bearer ${token}` },
-      }
+      },
     );
     return response.data;
   } catch (error: any) {
@@ -75,7 +75,7 @@ export const searchClientByDoc = async (documentNumber: string) => {
 };
 
 export const createClient = async (
-  payload: CreateClientRequest
+  payload: CreateClientRequest,
 ): Promise<ClientInformationResponse> => {
   const token = await AsyncStorage.getItem('userToken');
 
@@ -105,7 +105,7 @@ export const createClient = async (
 };
 
 export const createTakenRequirement = async (
-  payload: CreateTakenRequirementRequest
+  payload: CreateTakenRequirementRequest,
 ): Promise<TakenRequirementInformationResponse> => {
   const token = await AsyncStorage.getItem('userToken');
 
@@ -128,7 +128,7 @@ export const createTakenRequirement = async (
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-      }
+      },
     );
 
     return response.data;
@@ -146,7 +146,7 @@ export const createTakenRequirement = async (
 };
 
 export const updateTakenRequirement = async (
-  payload: UpdateTakenRequirementRequest
+  payload: UpdateTakenRequirementRequest,
 ): Promise<TakenRequirementInformationResponse> => {
   const token = await AsyncStorage.getItem('userToken');
 
@@ -168,7 +168,7 @@ export const updateTakenRequirement = async (
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-      }
+      },
     );
 
     return response.data;
@@ -188,17 +188,17 @@ export const updateTakenRequirement = async (
 export const getTakenRequirementsByUserAndDateRange = async (
   userId: string,
   start: string,
-  end: string
+  end: string,
 ): Promise<TakenRequirementWithClientResponse[]> => {
   const token = await AsyncStorage.getItem('userToken');
 
   const response = await axios.get(
     `${API_URL}/TakenRequirements/GetByUserAndDateRange/user-taken-requirement/${userId}?start=${encodeURIComponent(
-      start
+      start,
     )}&end=${encodeURIComponent(end)}`,
     {
       headers: { Authorization: `Bearer ${token}` },
-    }
+    },
   );
 
   return response.data;

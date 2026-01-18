@@ -45,9 +45,22 @@ export const login = async (email: string, password: string): Promise<any> => {
 
     return decodedToken;
   } catch (error: any) {
-    if (error.response && error.response.data && error.response.data.error) {
-      throw new Error(error.response.data.error);
+    console.error('[Auth] login error:', error);
+    // Si el servidor responde con un body, devolver su mensaje cuando exista
+    if (error.response && error.response.data) {
+      const serverMsg =
+        error.response.data.error || error.response.data.message || JSON.stringify(error.response.data);
+      throw new Error(serverMsg);
     }
-    throw new Error('Ocurrió un error desconocido durante el inicio de sesión.');
+
+    // Si la petición se envió pero no hubo respuesta
+    if (error.request) {
+      throw new Error(
+        'No hay respuesta del servidor. Verifica que la API sea accesible desde el dispositivo y que el certificado SSL sea válido (self-signed puede fallar en Android).'
+      );
+    }
+
+    // Otros errores (p. ej. configuración, network, etc.)
+    throw new Error(error.message || 'Ocurrió un error desconocido durante el inicio de sesión.');
   }
 };

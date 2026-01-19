@@ -26,8 +26,24 @@ interface Props {
 
 const TakenRequirementEditScreen: React.FC<Props> = ({ navigation }) => {
   const route = useRoute<any>();
-  const requirement: TakenRequirementWithClientResponse =
-    route.params.requirementToEdit;
+
+  /* =======================
+     REQUIREMENT (DEFENSIVO)
+     ======================= */
+  const requirement: TakenRequirementWithClientResponse | undefined =
+    route.params?.requirementToEdit;
+
+  if (!requirement) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>
+            Error: requerimiento no encontrado
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   /* =======================
      STATE
@@ -41,6 +57,15 @@ const TakenRequirementEditScreen: React.FC<Props> = ({ navigation }) => {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
+
+  /* =======================
+     RECIBIR CLIENTE NUEVO
+     ======================= */
+  useEffect(() => {
+    if (route.params?.selectedClient) {
+      setSelectedClient(route.params.selectedClient);
+    }
+  }, [route.params?.selectedClient]);
 
   /* =======================
      VALIDACIÓN
@@ -107,9 +132,8 @@ const TakenRequirementEditScreen: React.FC<Props> = ({ navigation }) => {
   const handleCreateNewClient = () => {
     navigation.navigate('ClientCreate', {
       documentNumber: docNumber.trim(),
-      fromEdit: true,
-      requirementId: requirement.id,
-      draft: { title, description },
+      origin: 'edit',
+      requirementToEdit: requirement,
     });
   };
 
@@ -143,7 +167,10 @@ const TakenRequirementEditScreen: React.FC<Props> = ({ navigation }) => {
       });
 
       Alert.alert('Éxito', 'Requerimiento actualizado', [
-        { text: 'OK', onPress: () => navigation.goBack() },
+        {
+          text: 'OK',
+          onPress: () => navigation.navigate('VendedorHome'),
+        },
       ]);
     } catch (error: any) {
       Alert.alert('Error', error.message || 'No se pudo actualizar');
@@ -193,12 +220,12 @@ const TakenRequirementEditScreen: React.FC<Props> = ({ navigation }) => {
               Nombre: {selectedClient.fullName}
             </Text>
             <Text style={styles.clientDocumentNumber}>
-              C.I. o RUC :{selectedClient.documentNumber}
+              C.I. o RUC: {selectedClient.documentNumber}
             </Text>
             <Text style={styles.clientPhone}>
               Teléfono: {selectedClient.phoneNumber}
             </Text>
-            <Text style={styles.cleintEmail}>
+            <Text style={styles.clientEmail}>
               Email: {selectedClient.email}
             </Text>
             <TouchableOpacity onPress={handleRemoveClient}>
@@ -256,9 +283,24 @@ const TakenRequirementEditScreen: React.FC<Props> = ({ navigation }) => {
     </SafeAreaView>
   );
 };
+
+export default TakenRequirementEditScreen;
+
+/* =======================
+   STYLES
+   ======================= */
 const styles = StyleSheet.create({
-  safeArea: {
+  safeArea: { flex: 1 },
+
+  errorContainer: {
     flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  errorText: {
+    color: 'red',
+    fontWeight: '600',
   },
 
   header: {
@@ -287,14 +329,40 @@ const styles = StyleSheet.create({
   sectionTitle: {
     marginTop: 16,
     fontWeight: '700',
-    fontSize: 14,
   },
-  clientCard: { backgroundColor: '#e8f4f8', padding: 12, borderRadius: 8 },
-  clientName: { fontStyle: 'italic', fontSize: 18, fontWeight: 'bold' },
-  clientDocumentNumber: { fontSize: 15, fontWeight: '500', marginTop: 1 },
-  clientPhone: { fontSize: 15, fontWeight: '500' },
-  cleintEmail: { fontSize: 15, fontWeight: '500' },
-  changeText: { fontSize: 17, color: '#ff0000', marginTop: 4 },
+
+  clientCard: {
+    backgroundColor: '#e8f4f8',
+    padding: 12,
+    borderRadius: 8,
+  },
+
+  clientName: {
+    fontStyle: 'italic',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+
+  clientDocumentNumber: {
+    fontSize: 15,
+    fontWeight: '500',
+  },
+
+  clientPhone: {
+    fontSize: 15,
+    fontWeight: '500',
+  },
+
+  clientEmail: {
+    fontSize: 15,
+    fontWeight: '500',
+  },
+
+  changeText: {
+    fontSize: 17,
+    color: '#ff0000',
+    marginTop: 4,
+  },
 
   row: {
     flexDirection: 'row',
@@ -321,7 +389,6 @@ const styles = StyleSheet.create({
   buttonText: {
     color: '#fff',
     fontWeight: '600',
-    textAlign: 'center',
   },
 
   footer: {
@@ -338,14 +405,10 @@ const styles = StyleSheet.create({
   saveText: {
     color: '#fff',
     fontWeight: '700',
-    fontSize: 15,
   },
 
   error: {
     color: 'red',
     fontSize: 12,
-    marginTop: 4,
   },
 });
-
-export default TakenRequirementEditScreen;

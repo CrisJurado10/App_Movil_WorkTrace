@@ -9,7 +9,7 @@ const ClientCreateScreen = () => {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
 
-  const { documentNumber, draft } = route.params;
+  const { documentNumber, origin, draft, requirementId } = route.params;
 
   const [fullName, setFullName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -24,10 +24,21 @@ const ClientCreateScreen = () => {
         email: email.trim(),
       });
 
-      navigation.navigate('TakenRequirementCreate', {
-        selectedClient: client,
-        draft,
-      });
+      if (origin === 'edit') {
+        navigation.navigate({
+          name: 'TakenRequirementEdit',
+          params: {
+            selectedClient: client,
+            requirementToEdit: route.params.requirementToEdit,
+          },
+          merge: true,
+        });
+      } else {
+        navigation.navigate('TakenRequirementCreate', {
+          selectedClient: client,
+          draft,
+        });
+      }
     } catch (error: any) {
       Alert.alert('Error', error.message || 'No se pudo crear el cliente');
     }
@@ -52,7 +63,7 @@ const ClientCreateScreen = () => {
         required
         maxLength={VALIDATION_RULES.Client.PhoneNumber.maxLength}
       />
-      <FormInput  
+      <FormInput
         label="Email"
         value={email}
         onChangeText={setEmail}

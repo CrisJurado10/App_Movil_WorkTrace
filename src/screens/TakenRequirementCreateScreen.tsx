@@ -110,6 +110,7 @@ const TakenRequirementCreateScreen: React.FC<Props> = ({ navigation }) => {
 
     navigation.navigate('ClientCreate', {
       documentNumber: docNumber.trim(),
+      origin: 'create',
       draft: {
         title,
         description,

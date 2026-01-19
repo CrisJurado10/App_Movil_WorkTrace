@@ -1,7 +1,7 @@
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const API_URL = "https://net-api-worktrace.onrender.com";
+const API_URL = "https://worktraceapi.onrender.com";
 
 export interface LocationPayload {
   latitude: number;

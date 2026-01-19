@@ -2,7 +2,7 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { parseValidationErrors } from '../constants/validationRules';
 
-const API_URL = 'http://192.168.100.3:5284';
+const API_URL = 'https://worktraceapi.onrender.com';
 
 export interface ClientInformationResponse {
   id: string;

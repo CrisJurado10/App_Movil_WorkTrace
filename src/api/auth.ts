@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export const login = async (email: string, password: string): Promise<any> => {
   try {
     const response = await axios.post(
-      'https://net-api-worktrace.onrender.com/User/Login',
+      'https://worktraceapi.onrender.com/User/Login',
       {
         email,
         password,

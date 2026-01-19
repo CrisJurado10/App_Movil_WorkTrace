@@ -10,7 +10,7 @@ import TecnicoHomeScreen from '../screens/TecnicoHomeScreen';
 import VendedorHomeScreen from '../screens/VendedorHomeScreen';
 import StartAssignmentScreen from '../screens/StartAssignmentScreen';
 import TakenRequirementCreateScreen from '../screens/TakenRequirementCreateScreen';
-//import TakenRequirementEditScreen from '../screens/TakenRequirementEditScreen';
+import TakenRequirementEditScreen from '../screens/TakenRequirementEditScreen';
 import ClientCreateScreen from '../screens/ClientCreateScreen';
 
 const Stack = createStackNavigator();
@@ -92,11 +92,11 @@ const AppNavigator = () => {
         options={{ title: 'Crear Cliente' }}
       />
 
-      {/* <Stack.Screen
+      <Stack.Screen
         name="TakenRequirementEdit"
         component={TakenRequirementEditScreen}
         options={{ headerShown: false, title: 'Editar Requerimiento' }}
-      />  */}
+      /> 
     </Stack.Navigator>
   );
 };

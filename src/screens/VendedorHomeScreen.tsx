@@ -73,31 +73,12 @@ const VendedorHomeScreen: React.FC<Props> = ({ navigation }) => {
       if (!userId) return;
 
       const getDayRangeUTC = (offsetDays: number) => {
-        const now = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - offsetDays);
+        start.setHours(0, 0, 0, 0);
 
-        const start = new Date(
-          Date.UTC(
-            now.getUTCFullYear(),
-            now.getUTCMonth(),
-            now.getUTCDate() - offsetDays,
-            0,
-            0,
-            0,
-            0,
-          ),
-        );
-
-        const end = new Date(
-          Date.UTC(
-            now.getUTCFullYear(),
-            now.getUTCMonth(),
-            now.getUTCDate() - offsetDays,
-            23,
-            59,
-            59,
-            999,
-          ),
-        );
+        const end = new Date(start);
+        end.setHours(23, 59, 59, 999);
 
         return {
           start: start.toISOString(),

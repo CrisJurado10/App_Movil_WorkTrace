@@ -1,4 +1,10 @@
-import React, { useEffect, useState, useCallback, useRef, useLayoutEffect } from 'react';
+import React, {
+  useEffect,
+  useState,
+  useCallback,
+  useRef,
+  useLayoutEffect,
+} from 'react';
 import {
   View,
   Text,
@@ -40,7 +46,10 @@ const TecnicoHomeScreen = () => {
   const [checkingGps, setCheckingGps] = useState(false);
   const [isLocationBlocked, setIsLocationBlocked] = useState(false);
   const [isGpsHardwareOff, setIsGpsHardwareOff] = useState(false);
-  const [currentLocation, setCurrentLocation] = useState<{latitude: number; longitude: number} | null>(null);
+  const [currentLocation, setCurrentLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
 
   const isCheckingGps = useRef(false);
   const appState = useRef(AppState.currentState);
@@ -95,16 +104,90 @@ const TecnicoHomeScreen = () => {
         end.toISOString(),
       );
       console.log('Debug Tasks:', data);
-      // Read locally finished assignments and mark them
+      // Read locally finished assignments and mark them. Also convert assignedDate to
+      // device local time: store a dd-mm-yyyy string in `assignedDate` and a
+      // localized `assignedTime` (HH:mm) so the UI shows local timezone values.
       try {
         const raw = await AsyncStorage.getItem('finishedAssignments');
         const finished = raw ? JSON.parse(raw) : [];
-        const augmented = data.map((d: any) => ({ ...d, _locallyFinished: finished.includes(String(d.id)) }));
+        const augmented = data.map((d: any) => {
+          const assignedDateObj = d.assignedDate
+            ? new Date(d.assignedDate)
+            : null;
+          const localAssignedDate = assignedDateObj
+            ? formatDMY(assignedDateObj)
+            : d.assignedDate || '';
+          const assignedTime = assignedDateObj
+            ? assignedDateObj.toLocaleTimeString('es-ES', {
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+            : d.assignedTime || '';
+          const assignedForms = d.assignedForms || [];
+          const assignedFormsNames =
+            assignedForms && assignedForms.length > 0
+              ? assignedForms.map((f: any) => f.name).join(', ')
+              : '';
+
+          const isFinished = !!d.checkOut; // consider finished if API provides checkOut
+          const computedStatus = isFinished
+            ? 'Finalizado'
+            : d.checkIn
+            ? 'Servicio en Progreso'
+            : d.status || '';
+
+          return {
+            ...d,
+            assignedDate: localAssignedDate,
+            assignedTime,
+            assignedForms,
+            assignedFormsNames,
+            status: computedStatus,
+            _locallyFinished: finished.includes(String(d.id)) || isFinished,
+          };
+        });
         setTasks(augmented);
         return augmented;
       } catch (e) {
-        setTasks(data);
-        return data;
+        // If reading finishedAssignments fails, still convert dates as a fallback
+        const fallback = data.map((d: any) => {
+          const assignedDateObj = d.assignedDate
+            ? new Date(d.assignedDate)
+            : null;
+          const localAssignedDate = assignedDateObj
+            ? formatDMY(assignedDateObj)
+            : d.assignedDate || '';
+          const assignedTime = assignedDateObj
+            ? assignedDateObj.toLocaleTimeString('es-ES', {
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+            : d.assignedTime || '';
+          const assignedForms = d.assignedForms || [];
+          const assignedFormsNames =
+            assignedForms && assignedForms.length > 0
+              ? assignedForms.map((f: any) => f.name).join(', ')
+              : '';
+
+          const isFinished = !!d.checkOut;
+          const computedStatus = isFinished
+            ? 'Finalizado'
+            : d.checkIn
+            ? 'Servicio en Progreso'
+            : d.status || '';
+
+          return {
+            ...d,
+            assignedDate: localAssignedDate,
+            assignedTime,
+            assignedForms,
+            assignedFormsNames,
+            status: computedStatus,
+            _locallyFinished: isFinished,
+          };
+        });
+        setTasks(fallback);
+        return fallback;
       }
     } catch (e) {
       console.log('ERROR:', e);
@@ -114,7 +197,7 @@ const TecnicoHomeScreen = () => {
   }, []);
 
   const checkLocationStatus = useCallback(async () => {
-    console.log("Checking GPS State:", checkingGps);
+    console.log('Checking GPS State:', checkingGps);
     if (isCheckingGps.current) return;
     const isSilentCheck = gpsReady;
 
@@ -127,14 +210,14 @@ const TecnicoHomeScreen = () => {
       let hasPermission = false;
       if (Platform.OS === 'android') {
         const granted = await PermissionsAndroid.check(
-            PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
         );
         hasPermission = granted;
         if (!granted) {
-             const request = await PermissionsAndroid.request(
-                PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
-            );
-            hasPermission = request === PermissionsAndroid.RESULTS.GRANTED;
+          const request = await PermissionsAndroid.request(
+            PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+          );
+          hasPermission = request === PermissionsAndroid.RESULTS.GRANTED;
         }
       } else {
         hasPermission = await requestLocationPermission();
@@ -145,18 +228,19 @@ const TecnicoHomeScreen = () => {
         setIsLocationBlocked(true);
         setGpsReady(false);
       } else {
-        console.log('[LocationGate] Permission granted. Enabling GPS ready state.');
+        console.log(
+          '[LocationGate] Permission granted. Enabling GPS ready state.',
+        );
         setGpsReady(true);
         setIsLocationBlocked(false);
       }
-
     } catch (error) {
       console.log('[LocationGate] Caught error -> Blocking UI.', error);
       setIsLocationBlocked(true);
       setGpsReady(false);
     } finally {
-        if (!isSilentCheck) setCheckingGps(false);
-        isCheckingGps.current = false;
+      if (!isSilentCheck) setCheckingGps(false);
+      isCheckingGps.current = false;
     }
   }, [gpsReady, checkingGps]);
 
@@ -165,15 +249,21 @@ const TecnicoHomeScreen = () => {
     const initAndLoad = async () => {
       try {
         // 1. Load Assignments first
-            console.log('[HomeScreen] Loading assignments...');
-            const data = await loadAssignments();
+        console.log('[HomeScreen] Loading assignments...');
+        const data = await loadAssignments();
 
-            // 2. Init Background Service ONLY if there are active assignments and permissions
-            // Exclude locally finished assignments from active check
-            const active = data && data.some((a: any) => {
-              if (a._locallyFinished) return false;
-              return a.status === 'In Progress' || a.status === 'Started' || (a.checkIn && a.status !== 'Completed');
-            });
+        // 2. Init Background Service ONLY if there are active assignments and permissions
+        // Exclude locally finished assignments from active check
+        const active =
+          data &&
+          data.some((a: any) => {
+            if (a._locallyFinished) return false;
+            return (
+              a.status === 'In Progress' ||
+              a.status === 'Started' ||
+              (a.checkIn && a.status !== 'Completed')
+            );
+          });
 
         if (Platform.OS === 'android') {
           console.log('[InitService] Requesting permissions...');
@@ -182,29 +272,44 @@ const TecnicoHomeScreen = () => {
           ];
           // Add POST_NOTIFICATIONS for Android 13+ (API 33+)
           if (Platform.Version >= 33) {
-            permissionsToRequest.push(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+            permissionsToRequest.push(
+              PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+            );
           }
 
-          const granted = await PermissionsAndroid.requestMultiple(permissionsToRequest);
+          const granted = await PermissionsAndroid.requestMultiple(
+            permissionsToRequest,
+          );
           console.log('[InitService] Permissions result:', granted);
 
-          const locationGranted = granted[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] === PermissionsAndroid.RESULTS.GRANTED;
-          const notificationsGranted = Platform.Version >= 33 
-            ? granted[PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS] === PermissionsAndroid.RESULTS.GRANTED
-            : true;
+          const locationGranted =
+            granted[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] ===
+            PermissionsAndroid.RESULTS.GRANTED;
+          const notificationsGranted =
+            Platform.Version >= 33
+              ? granted[PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS] ===
+                PermissionsAndroid.RESULTS.GRANTED
+              : true;
 
           if (locationGranted && active) {
             if (!notificationsGranted) {
-              console.warn('[InitService] POST_NOTIFICATIONS denied. Service will run without notifications.');
+              console.warn(
+                '[InitService] POST_NOTIFICATIONS denied. Service will run without notifications.',
+              );
             }
             try {
               console.log('[InitService] Starting background service...');
               await startBackgroundLocationService();
             } catch (serviceErr) {
-              console.error('[InitService] Failed to start service:', serviceErr);
+              console.error(
+                '[InitService] Failed to start service:',
+                serviceErr,
+              );
             }
           } else {
-            console.log('[InitService] Location Permission not granted or no active assignments. Service will not start.');
+            console.log(
+              '[InitService] Location Permission not granted or no active assignments. Service will not start.',
+            );
           }
         } else {
           // iOS or other platforms handling: start only if active assignments
@@ -212,12 +317,14 @@ const TecnicoHomeScreen = () => {
             try {
               await startBackgroundLocationService();
             } catch (iosServiceErr) {
-              console.error('[InitService] Failed to start service (iOS/other):', iosServiceErr);
+              console.error(
+                '[InitService] Failed to start service (iOS/other):',
+                iosServiceErr,
+              );
             }
           }
         }
 
-        
         // 3. Load Name
         if (!displayName) {
           const storedName = await AsyncStorage.getItem('userName');
@@ -227,38 +334,40 @@ const TecnicoHomeScreen = () => {
         console.error('[InitService] Error during initialization:', err);
       }
 
-        // 3. Load Name
-        if (!displayName) {
-            const storedName = await AsyncStorage.getItem('userName');
-            if (storedName) setDisplayName(storedName);
-        }
+      // 3. Load Name
+      if (!displayName) {
+        const storedName = await AsyncStorage.getItem('userName');
+        if (storedName) setDisplayName(storedName);
+      }
 
-        // 4. Battery Optimization Check (Android)
-        if (Platform.OS === 'android') {
-            const hasAsked = await AsyncStorage.getItem('hasAskedBatteryOpt');
-            if (!hasAsked) {
-                Alert.alert(
-                    "Optimización de Batería",
-                    "Para garantizar que el GPS funcione en segundo plano, WorkTrace necesita ser excluida de la optimización de batería. Por favor selecciona 'Permitir' o 'Sin restricciones' en la siguiente pantalla.",
-                    [
-                        { text: "Cancelar", style: "cancel" },
-                        { 
-                            text: "Abrir Configuración", 
-                            onPress: async () => {
-                                await AsyncStorage.setItem('hasAskedBatteryOpt', 'true');
-                                try {
-                                    // Opens the list of apps to ignore battery optimizations
-                                    await Linking.sendIntent("android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS");
-                                } catch (e) {
-                                    console.error("Failed to open battery settings:", e);
-                                    Linking.openSettings();
-                                }
-                            } 
-                        }
-                    ]
-                );
-            }
+      // 4. Battery Optimization Check (Android)
+      if (Platform.OS === 'android') {
+        const hasAsked = await AsyncStorage.getItem('hasAskedBatteryOpt');
+        if (!hasAsked) {
+          Alert.alert(
+            'Optimización de Batería',
+            "Para garantizar que el GPS funcione en segundo plano, WorkTrace necesita ser excluida de la optimización de batería. Por favor selecciona 'Permitir' o 'Sin restricciones' en la siguiente pantalla.",
+            [
+              { text: 'Cancelar', style: 'cancel' },
+              {
+                text: 'Abrir Configuración',
+                onPress: async () => {
+                  await AsyncStorage.setItem('hasAskedBatteryOpt', 'true');
+                  try {
+                    // Opens the list of apps to ignore battery optimizations
+                    await Linking.sendIntent(
+                      'android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS',
+                    );
+                  } catch (e) {
+                    console.error('Failed to open battery settings:', e);
+                    Linking.openSettings();
+                  }
+                },
+              },
+            ],
+          );
         }
+      }
     };
 
     initAndLoad();
@@ -271,7 +380,9 @@ const TecnicoHomeScreen = () => {
         appState.current.match(/inactive|background/) &&
         nextAppState === 'active'
       ) {
-        console.log('[AppState] App has come to the foreground! Re-checking location.');
+        console.log(
+          '[AppState] App has come to the foreground! Re-checking location.',
+        );
         checkLocationStatus();
       }
       appState.current = nextAppState;
@@ -294,7 +405,9 @@ const TecnicoHomeScreen = () => {
     navigation.setOptions({
       headerRight: () => (
         <TouchableOpacity onPress={handleLogout} style={{ marginRight: 15 }}>
-          <Text style={{ color: '#EF4444', fontWeight: 'bold', fontSize: 16 }}>Salir</Text>
+          <Text style={{ color: '#EF4444', fontWeight: 'bold', fontSize: 16 }}>
+            Salir
+          </Text>
         </TouchableOpacity>
       ),
     });
@@ -302,37 +415,33 @@ const TecnicoHomeScreen = () => {
 
   // 4. HANDLERS
   const handleLogout = async () => {
-    Alert.alert(
-      'Cerrar Sesión',
-      '¿Estás seguro de que deseas salir?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Salir',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await AsyncStorage.multiRemove([
-                'userToken',
-                'userEmail',
-                'userPassword',
-                'userId',
-                'userRole',
-                'userName'
-              ]);
-              navigation.dispatch(
-                CommonActions.reset({
-                  index: 0,
-                  routes: [{ name: 'Login' }],
-                })
-              );
-            } catch (e) {
-              console.error('Error al cerrar sesión', e);
-            }
-          },
+    Alert.alert('Cerrar Sesión', '¿Estás seguro de que deseas salir?', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Salir',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await AsyncStorage.multiRemove([
+              'userToken',
+              'userEmail',
+              'userPassword',
+              'userId',
+              'userRole',
+              'userName',
+            ]);
+            navigation.dispatch(
+              CommonActions.reset({
+                index: 0,
+                routes: [{ name: 'Login' }],
+              }),
+            );
+          } catch (e) {
+            console.error('Error al cerrar sesión', e);
+          }
         },
-      ]
-    );
+      },
+    ]);
   };
 
   const onRefresh = async () => {
@@ -347,9 +456,15 @@ const TecnicoHomeScreen = () => {
       const getFreshLocation = () => {
         return new Promise<any>((resolve, reject) => {
           Geolocation.getCurrentPosition(
-            (pos) => resolve(pos.coords),
-            (err) => reject(err),
-            { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000, forceRequestLocation: true, showLocationDialog: true }
+            pos => resolve(pos.coords),
+            err => reject(err),
+            {
+              enableHighAccuracy: true,
+              timeout: 15000,
+              maximumAge: 10000,
+              forceRequestLocation: true,
+              showLocationDialog: true,
+            },
           );
         });
       };
@@ -375,118 +490,147 @@ const TecnicoHomeScreen = () => {
     } catch (error: any) {
       console.error('Error al hacer Check-In:', error);
       if (error?.code === 3) {
-          Alert.alert('Error de Conexión GPS', 'No se pudo obtener la ubicación. Por favor, verifica que el GPS esté activo y tengas buena señal.');
+        Alert.alert(
+          'Error de Conexión GPS',
+          'No se pudo obtener la ubicación. Por favor, verifica que el GPS esté activo y tengas buena señal.',
+        );
       } else {
-          Alert.alert('Error', 'No se pudo obtener ubicación o iniciar tarea.');
+        Alert.alert('Error', 'No se pudo obtener ubicación o iniciar tarea.');
       }
     }
   };
 
   // 5. CONDITIONAL RENDER (MUST BE LAST)
   if (isLocationBlocked) {
-      return (
-          <SafeAreaView style={[styles.container, styles.centerContent]}>
-              <Text style={styles.blockTitle}>Ubicación Requerida</Text>
-              <Text style={styles.blockText}>
-                  {isGpsHardwareOff 
-                    ? 'El GPS está desactivado. Por favor, actívalo para continuar.' 
-                    : 'Para utilizar esta aplicación, es necesario que otorgues los permisos de ubicación.'}
-              </Text>
-              <TouchableOpacity
-                  style={styles.fixButton}
-                  onPress={() => {
-                    if (isGpsHardwareOff && Platform.OS === 'android') {
-                        Linking.sendIntent("android.settings.LOCATION_SOURCE_SETTINGS");
-                    } else {
-                        Linking.openSettings();
-                    }
-                  }}
-              >
-                  <Text style={styles.fixButtonText}>
-                    {isGpsHardwareOff ? 'Activar GPS' : 'Ir a Configuración'}
-                  </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                  style={styles.retryLink}
-                  onPress={checkLocationStatus}
-              >
-                  <Text style={styles.retryLinkText}>Reintentar</Text>
-              </TouchableOpacity>
-          </SafeAreaView>
-      );
+    return (
+      <SafeAreaView style={[styles.container, styles.centerContent]}>
+        <Text style={styles.blockTitle}>Ubicación Requerida</Text>
+        <Text style={styles.blockText}>
+          {isGpsHardwareOff
+            ? 'El GPS está desactivado. Por favor, actívalo para continuar.'
+            : 'Para utilizar esta aplicación, es necesario que otorgues los permisos de ubicación.'}
+        </Text>
+        <TouchableOpacity
+          style={styles.fixButton}
+          onPress={() => {
+            if (isGpsHardwareOff && Platform.OS === 'android') {
+              Linking.sendIntent('android.settings.LOCATION_SOURCE_SETTINGS');
+            } else {
+              Linking.openSettings();
+            }
+          }}
+        >
+          <Text style={styles.fixButtonText}>
+            {isGpsHardwareOff ? 'Activar GPS' : 'Ir a Configuración'}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.retryLink}
+          onPress={checkLocationStatus}
+        >
+          <Text style={styles.retryLinkText}>Reintentar</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
   }
 
   // 6. MAIN RENDER
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#F3F4F6' }}>
-    <ScrollView
-      style={styles.container}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
-    >
-      <Text style={styles.title}>Bienvenido</Text>
-      <Text style={styles.name}>{displayName}</Text>
+      <ScrollView
+        style={styles.container}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        <Text style={styles.title}>Bienvenido</Text>
+        <Text style={styles.name}>{displayName}</Text>
 
-      {loading ? (
-        <ActivityIndicator size="large" />
-      ) : (
-        <>
-          <Text style={styles.sectionTitle}>Calendario semanal</Text>
+        {loading ? (
+          <ActivityIndicator size="large" />
+        ) : (
+          <>
+            <Text style={styles.sectionTitle}>Calendario semanal</Text>
 
-          {weekDays.map((day, index) => {
-            const formatted = formatDMY(day);
-            const dayTasks = tasks.filter((t: any) => t.assignedDate === formatted);
+            {weekDays.map((day, index) => {
+              const formatted = formatDMY(day);
+              const dayTasks = tasks.filter(
+                (t: any) => t.assignedDate === formatted,
+              );
 
-            return (
-              <View key={index} style={styles.dayBlock}>
-                <Text style={styles.dayLabel}>
-                  {day
-                    .toLocaleDateString('es-ES', {
-                      weekday: 'long',
-                      day: '2-digit',
-                      month: 'short',
-                    })
-                    .toUpperCase()}
-                </Text>
+              return (
+                <View key={index} style={styles.dayBlock}>
+                  <Text style={styles.dayLabel}>
+                    {day
+                      .toLocaleDateString('es-ES', {
+                        weekday: 'long',
+                        day: '2-digit',
+                        month: 'short',
+                      })
+                      .toUpperCase()}
+                  </Text>
 
-                {dayTasks.length === 0 ? (
-                  <Text style={styles.noTask}>No hay tareas</Text>
-                ) : (
-                  dayTasks.map((item: any) => {
-                    const enabled = isToday(item.assignedDate);
-                    const localFinished = !!item._locallyFinished;
-                    return (
-                      <View key={item.id} style={styles.card}>
-                        <Text style={styles.client}>{item.client}</Text>
-                        <Text style={styles.field}>
-                          Servicio: {item.service}
-                        </Text>
-                        <Text style={styles.field}>
-                          Dirección: {item.address}
-                        </Text>
-                        <Text style={styles.field}>
-                          Hora: {item.assignedTime}
-                        </Text>
-                        <Text style={styles.field}>Estado: {item.status}</Text>
-                        <Text style={styles.field}>
-                          Agendado por: {item.createdByUser}
-                        </Text>
-                        <TouchableOpacity
-                          style={[
-                            styles.startButton,
-                            (!enabled && !item.checkIn) && styles.disabledButton,
-                            !!item.checkIn && styles.inProgressButton,
-                            localFinished && styles.finishedButton,
-                          ]}
-                          disabled={localFinished || (!enabled && !item.checkIn)}
-                          onPress={() => {
-                            if (localFinished) return;
-                            if (!enabled && !item.checkIn) return;
-                            handleCheckIn(item);
-                          }}
-                        >
-                          <Text style={styles.buttonText}>
+                  {dayTasks.length === 0 ? (
+                    <Text style={styles.noTask}>No hay tareas</Text>
+                  ) : (
+                    dayTasks.map((item: any) => {
+                      const enabled = isToday(item.assignedDate);
+                      const localFinished = !!item._locallyFinished;
+                      return (
+                        <View key={item.id} style={styles.card}>
+                          <Text style={styles.client}>{item.client}</Text>
+                          <Text style={styles.field}>
+                            Servicio: {item.service}
+                          </Text>
+                          <Text style={styles.field}>
+                            Dirección: {item.address}
+                          </Text>
+                          <Text style={styles.field}>
+                            Hora: {item.assignedTime}
+                          </Text>
+                          {item.assignedForms &&
+                          item.assignedForms.length > 0 ? (
+                            <View style={styles.formsContainer}>
+                              <Text style={styles.formsLabel}>
+                                Formularios:
+                              </Text>
+
+                              <View style={styles.formsChips}>
+                                {item.assignedForms.map((form: any) => (
+                                  <View key={form.id} style={styles.formChip}>
+                                    <Text style={styles.formChipText}>
+                                      {form.name}
+                                    </Text>
+                                  </View>
+                                ))}
+                              </View>
+                            </View>
+                          ) : null}
+                          <Text style={styles.field}>
+                            Estado: {item.status}
+                          </Text>
+                          <Text style={styles.field}>
+                            Agendado por: {item.createdByUser}
+                          </Text>
+                          <TouchableOpacity
+                            style={[
+                              styles.startButton,
+                              !enabled &&
+                                !item.checkIn &&
+                                styles.disabledButton,
+                              !!item.checkIn && styles.inProgressButton,
+                              localFinished && styles.finishedButton,
+                            ]}
+                            disabled={
+                              localFinished || (!enabled && !item.checkIn)
+                            }
+                            onPress={() => {
+                              if (localFinished) return;
+                              if (!enabled && !item.checkIn) return;
+                              handleCheckIn(item);
+                            }}
+                          >
+                            <Text style={styles.buttonText}>
                               {localFinished
                                 ? 'Finalizado'
                                 : item.checkIn
@@ -495,19 +639,18 @@ const TecnicoHomeScreen = () => {
                                 ? 'Iniciar'
                                 : 'No disponible'}
                             </Text>
-                        </TouchableOpacity>
-                      </View>
-                    );
-                  })
-                )}
-              </View>
-            );
-          })}
-        </>
-      )}
-    </ScrollView>
-    
-  </SafeAreaView>
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    })
+                  )}
+                </View>
+              );
+            })}
+          </>
+        )}
+      </ScrollView>
+    </SafeAreaView>
   );
 };
 
@@ -519,42 +662,42 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6',
   },
   centerContent: {
-      justifyContent: 'center',
-      alignItems: 'center',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   blockTitle: {
-      fontSize: 24,
-      fontWeight: 'bold',
-      color: '#EF4444',
-      marginBottom: 10,
-      textAlign: 'center',
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#EF4444',
+    marginBottom: 10,
+    textAlign: 'center',
   },
   blockText: {
-      fontSize: 16,
-      color: '#374151',
-      textAlign: 'center',
-      marginBottom: 20,
-      paddingHorizontal: 20,
+    fontSize: 16,
+    color: '#374151',
+    textAlign: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 20,
   },
   fixButton: {
-      backgroundColor: '#2563EB',
-      paddingHorizontal: 20,
-      paddingVertical: 12,
-      borderRadius: 8,
-      marginBottom: 15,
+    backgroundColor: '#2563EB',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginBottom: 15,
   },
   fixButtonText: {
-      color: 'white',
-      fontWeight: 'bold',
-      fontSize: 16,
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
   retryLink: {
-      padding: 10,
+    padding: 10,
   },
   retryLinkText: {
-      color: '#2563EB',
-      textDecorationLine: 'underline',
-      fontSize: 16,
+    color: '#2563EB',
+    textDecorationLine: 'underline',
+    fontSize: 16,
   },
   title: {
     fontSize: 28,
@@ -635,6 +778,35 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: 'white',
     fontWeight: 'bold',
+  },
+  formsContainer: {
+    marginTop: 6,
+    marginBottom: 4,
+  },
+
+  formsLabel: {
+    fontSize: 16,
+    color: '#374151',
+    marginBottom: 6,
+  },
+
+  formsChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6, // si tu RN no soporta gap, te doy alternativa abajo
+  },
+
+  formChip: {
+    backgroundColor: '#e0fade',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+
+  formChipText: {
+    fontSize: 14,
+    color: '#031961',
+    fontWeight: '600',
   },
 });
 

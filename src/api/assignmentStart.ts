@@ -18,19 +18,36 @@ export interface StartAssignmentRequest {
 export const startAssignment = async (
   id: string | number,
   payload: StartAssignmentRequest
-) => {
+): Promise<StartAssignmentResponse> => {
   const token = await AsyncStorage.getItem("userToken");
+  // Try primary endpoint, fallback to legacy route with /start if necessary
+  const primaryUrl = `${API_URL}/AssignmentMobile/StartAssignment/${id}`;
+  const fallbackUrl = `${API_URL}/AssignmentMobile/StartAssignment/${id}/start`;
 
-  return axios.post(
-    `${API_URL}/AssignmentMobile/StartAssignment/${id}/start`,
-    payload,
-    {
+  try {
+    const response = await axios.post(primaryUrl, payload, {
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
+    });
+    return response.data;
+  } catch (err: any) {
+    // If primary failed with 404 or the server expects the older route, try fallback
+    const status = err?.response?.status;
+    if (status === 404 || status === 405 || (err?.code === 'ENOTFOUND')) {
+      const response = await axios.post(fallbackUrl, payload, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+      return response.data;
     }
-  );
+
+    // Re-throw original error for caller to handle
+    throw err;
+  }
 };
 
 

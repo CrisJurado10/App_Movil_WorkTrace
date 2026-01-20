@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import {
   View,
@@ -12,13 +11,17 @@ import {
   Image,
   PermissionsAndroid,
   Platform,
-  NativeModules
+  NativeModules,
+  TouchableOpacity,
+  Linking,
 } from 'react-native';
 import ImagePicker from 'react-native-image-crop-picker';
+import QRCode from 'react-native-qrcode-svg';
 import useLocationTracking from '../hooks/useLocationTracking';
 import { updateProgress, finishAssignment } from '../api/assignmentStart';
 import { CommonActions } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { createEvaluationSession } from '../api/assignmentEvaluation';
 
 // Interfaz para los archivos de media
 interface UploadFile {
@@ -32,32 +35,36 @@ const StartAssignmentScreen = ({ route, navigation }) => {
   const [loading, setLoading] = useState(true);
   const [checkInTime, setCheckInTime] = useState<string>('');
   const [lastCoords, setLastCoords] = useState<string>('');
+  const [showQR, setShowQR] = useState(true);
 
   const [comment, setComment] = useState<string>('');
   const [mediaFiles, setMediaFiles] = useState<UploadFile[]>([]);
   const [sendingProgress, setSendingProgress] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  const [qrVisible, setQrVisible] = useState(false);
+  const [qrUrl, setQrUrl] = useState<string | null>(null);
+  const [loadingQr, setLoadingQr] = useState(false);
 
   // Obtener stopTracking del hook
   const { stopTracking } = useLocationTracking({
     assignmentId,
     enabled: true,
     intervalMs: 30000,
-    onLocationUpdate: (coords) => setLastCoords(coords),
+    onLocationUpdate: coords => setLastCoords(coords),
   });
 
   useEffect(() => {
     const t = setTimeout(() => setLoading(false), 1500);
-    
+
     // Si viene checkIn en params, usarlo. Si no, usar ahora.
     if (route.params?.checkIn) {
-        const d = new Date(route.params.checkIn);
-        setCheckInTime(d.toLocaleString());
+      const d = new Date(route.params.checkIn);
+      setCheckInTime(d.toLocaleString());
     } else {
-        const now = new Date().toLocaleString();
-        setCheckInTime(now);
+      const now = new Date().toLocaleString();
+      setCheckInTime(now);
     }
-    
+
     return () => clearTimeout(t);
   }, [route.params?.checkIn]);
 
@@ -68,7 +75,8 @@ const StartAssignmentScreen = ({ route, navigation }) => {
           PermissionsAndroid.PERMISSIONS.CAMERA,
           {
             title: 'Permiso de Cámara',
-            message: 'La aplicación necesita acceso a la cámara para tomar fotos.',
+            message:
+              'La aplicación necesita acceso a la cámara para tomar fotos.',
             buttonNeutral: 'Preguntar luego',
             buttonNegative: 'Cancelar',
             buttonPositive: 'OK',
@@ -87,7 +95,10 @@ const StartAssignmentScreen = ({ route, navigation }) => {
     try {
       const hasPermission = await requestCameraPermission();
       if (!hasPermission) {
-        Alert.alert('Permiso denegado', 'No se puede abrir la cámara sin permiso.');
+        Alert.alert(
+          'Permiso denegado',
+          'No se puede abrir la cámara sin permiso.',
+        );
         return;
       }
 
@@ -97,8 +108,9 @@ const StartAssignmentScreen = ({ route, navigation }) => {
       });
 
       if (image) {
-        const filename = image.filename || image.path.split('/').pop() || 'photo_cam.jpg';
-        setMediaFiles((prev) => [
+        const filename =
+          image.filename || image.path.split('/').pop() || 'photo_cam.jpg';
+        setMediaFiles(prev => [
           ...prev,
           {
             uri: image.path,
@@ -110,25 +122,29 @@ const StartAssignmentScreen = ({ route, navigation }) => {
     } catch (e: any) {
       if (e.code !== 'E_PICKER_CANCELLED') {
         console.error('TakePhoto Error:', e);
-        Alert.alert('Error', 'No se pudo abrir la cámara. Verifica permisos y reinicia.');
+        Alert.alert(
+          'Error',
+          'No se pudo abrir la cámara. Verifica permisos y reinicia.',
+        );
       }
     }
   };
 
-  
-const buildFormData = (commentText: string, files: UploadFile[]): FormData => {
-  const fd = new FormData();
-  if (commentText) fd.append('Comment', commentText);
-  files.forEach(file => {
-    fd.append('MediaFiles', {
-      uri: file.uri,
-      type: file.type,
-      name: file.name,
-    } as any);
-  });
-  return fd;
-};
-
+  const buildFormData = (
+    commentText: string,
+    files: UploadFile[],
+  ): FormData => {
+    const fd = new FormData();
+    if (commentText) fd.append('Comment', commentText);
+    files.forEach(file => {
+      fd.append('MediaFiles', {
+        uri: file.uri,
+        type: file.type,
+        name: file.name,
+      } as any);
+    });
+    return fd;
+  };
 
   const handleUpdateProgress = async () => {
     try {
@@ -145,59 +161,72 @@ const buildFormData = (commentText: string, files: UploadFile[]): FormData => {
     }
   };
 
+  const handleGenerateQr = async () => {
+    try {
+      setLoadingQr(true);
+
+      const session = await createEvaluationSession(assignmentId);
+
+      setQrUrl(session.url);
+      setQrVisible(true);
+    } catch (error: any) {
+      console.error('Error creando sesión QR:', error);
+      Alert.alert(
+        'Error',
+        error.message || 'No se pudo generar el QR de evaluación.',
+      );
+    } finally {
+      setLoadingQr(false);
+    }
+  };
+
   const handleFinishAssignment = async () => {
     try {
       setFinishing(true);
       const checkout = new Date().toISOString();
-      
+
       // 1. Detener el envío de ubicación local inmediatamente (interval del hook)
       stopTracking();
       console.log('📍 Tracking detenido antes de finalizar tarea');
-      
+
       // 2. Enviar el check-out
       await finishAssignment(assignmentId, { checkOut: checkout });
-      
+
       // 3. Mostrar alerta y navegar después de confirmar
       Alert.alert(
         'Tarea finalizada',
-        'Check-Out registrado. Volviendo al inicio...',
+        'Check-Out registrado. El cliente ahora puede evaluar el servicio.',
         [
           {
-            text: 'OK',
-            onPress: () => {
-              // 4. Guardar localmente que esta asignación fue finalizada (para evitar reentrada)
-              (async () => {
-                try {
-                  const raw = await AsyncStorage.getItem('finishedAssignments');
-                  const arr = raw ? JSON.parse(raw) : [];
-                  const strId = String(assignmentId);
-                  if (!arr.includes(strId)) {
-                    arr.push(strId);
-                    await AsyncStorage.setItem('finishedAssignments', JSON.stringify(arr));
-                  }
-                } catch (e) {
-                  console.warn('No se pudo guardar finishedAssignments:', e);
+            text: 'Generar QR',
+            onPress: async () => {
+              // 1. Guardar localmente que esta asignación fue finalizada
+              try {
+                const raw = await AsyncStorage.getItem('finishedAssignments');
+                const arr = raw ? JSON.parse(raw) : [];
+                const strId = String(assignmentId);
+                if (!arr.includes(strId)) {
+                  arr.push(strId);
+                  await AsyncStorage.setItem(
+                    'finishedAssignments',
+                    JSON.stringify(arr),
+                  );
                 }
-                // Navegar de vuelta a TecnicoHome (reset para forzar recarga)
-                navigation.dispatch(
-                  CommonActions.reset({
-                    index: 0,
-                    routes: [{ name: 'TecnicoHome' }],
-                  })
-                );
-              })();
+              } catch (e) {
+                console.warn('No se pudo guardar finishedAssignments:', e);
+              }
+
+              // 2. Generar sesión de evaluación y mostrar QR
+              await handleGenerateQr();
             },
           },
         ],
-        { cancelable: false }
+        { cancelable: false },
       );
     } catch (err: any) {
       // Detener tracking incluso si hay error
       stopTracking();
-      Alert.alert(
-        'Error',
-        err.message || 'No se pudo finalizar la tarea.'
-      );
+      Alert.alert('Error', err.message || 'No se pudo finalizar la tarea.');
     } finally {
       setFinishing(false);
     }
@@ -213,7 +242,9 @@ const buildFormData = (commentText: string, files: UploadFile[]): FormData => {
           <Text style={styles.subText}>Check-In realizado a las:</Text>
           <Text style={styles.time}>{checkInTime}</Text>
           <Text style={styles.subText}>Ubicación enviada cada 30 segundos</Text>
-          {lastCoords && <Text style={styles.coords}>Última ubicación: {lastCoords}</Text>}
+          {lastCoords && (
+            <Text style={styles.coords}>Última ubicación: {lastCoords}</Text>
+          )}
 
           {/* Sección para actualizar progreso */}
           <View style={styles.section}>
@@ -226,11 +257,15 @@ const buildFormData = (commentText: string, files: UploadFile[]): FormData => {
               multiline
             />
             <View style={{ marginBottom: 10, marginTop: 10 }}>
-               <Button title="Tomar Foto (Cámara)" onPress={takePhoto} />
+              <Button title="Tomar Foto (Cámara)" onPress={takePhoto} />
             </View>
             <View style={styles.imagesContainer}>
               {mediaFiles.map((file, idx) => (
-                <Image key={idx} source={{ uri: file.uri }} style={styles.imagePreview} />
+                <Image
+                  key={idx}
+                  source={{ uri: file.uri }}
+                  style={styles.imagePreview}
+                />
               ))}
             </View>
             <Button
@@ -253,21 +288,114 @@ const buildFormData = (commentText: string, files: UploadFile[]): FormData => {
           </View>
         </>
       )}
+      {qrVisible && qrUrl && (
+        <View style={styles.qrOverlay}>
+          <View style={styles.qrContainer}>
+            <Text style={styles.qrTitle}>Evaluación del Cliente</Text>
+
+            {loadingQr ? (
+              <ActivityIndicator size="large" />
+            ) : (
+              <QRCode value={qrUrl} size={220} />
+            )}
+
+            <Text style={styles.qrHint}>
+              El cliente debe escanear este código para evaluar el servicio
+            </Text>
+
+            <TouchableOpacity
+              style={styles.qrCloseButton}
+              onPress={async () => {
+                setQrVisible(false);
+
+                navigation.dispatch(
+                  CommonActions.reset({
+                    index: 0,
+                    routes: [{ name: 'TecnicoHome' }],
+                  }),
+                );
+              }}
+            >
+              <Text style={styles.qrCloseText}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
     </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 16 },
+  container: {
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+  },
   title: { fontSize: 28, fontWeight: 'bold', marginBottom: 10 },
   subText: { fontSize: 16, marginTop: 10 },
   time: { fontSize: 20, fontWeight: 'bold', color: '#2563EB', marginTop: 5 },
   coords: { fontSize: 14, color: '#555', marginTop: 10 },
   section: { width: '100%', marginTop: 24 },
   sectionTitle: { fontSize: 18, fontWeight: '600', marginBottom: 8 },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10, minHeight: 80 },
-  imagesContainer: { flexDirection: 'row', flexWrap: 'wrap', marginVertical: 10 },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 10,
+    minHeight: 80,
+  },
+  imagesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginVertical: 10,
+  },
   imagePreview: { width: 80, height: 80, marginRight: 8, borderRadius: 8 },
+  qrOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  qrContainer: {
+    backgroundColor: 'white',
+    padding: 24,
+    borderRadius: 16,
+    alignItems: 'center',
+    width: '85%',
+  },
+
+  qrTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 16,
+  },
+
+  qrHint: {
+    marginTop: 16,
+    fontSize: 14,
+    textAlign: 'center',
+    color: '#555',
+  },
+
+  qrCloseButton: {
+    marginTop: 20,
+    backgroundColor: '#2563EB',
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+  },
+
+  qrCloseText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
 });
 
 export default StartAssignmentScreen;

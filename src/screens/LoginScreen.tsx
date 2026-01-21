@@ -24,6 +24,16 @@ const LoginScreen = () => {
   const navigation = useNavigation();
 
   const handleLogin = async () => {
+    // 1. Validación Local: Campos vacíos
+    if (!email.trim()) {
+      Alert.alert('Campo requerido', 'Por favor, ingresa tu correo electrónico.');
+      return;
+    }
+    if (!password.trim()) {
+      Alert.alert('Campo requerido', 'Por favor, ingresa tu contraseña.');
+      return;
+    }
+
     setLoading(true);
     try {
       const user = await login(email, password);
@@ -43,12 +53,13 @@ const LoginScreen = () => {
         navigation.navigate('VendedorHome', { userName });
       } else {
         Alert.alert(
-          'Error de Inicio de Sesión',
+          'Error de acceso',
           'No se pudo determinar el rol del usuario o el rol es inválido.',
         );
       }
-    } catch (error) {
-      Alert.alert('Error de Inicio de Sesión', error.message);
+    } catch (error: any) {
+      // El mensaje de error ya viene traducido desde auth.ts -> errorHandler.ts
+      Alert.alert('Error de acceso', error.message);
     } finally {
       setLoading(false);
     }

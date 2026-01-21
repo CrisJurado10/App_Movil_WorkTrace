@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { jwtDecode } from 'jwt-decode';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getErrorMessage } from '../utils/errorHandler';
 
 export const login = async (email: string, password: string): Promise<any> => {
   try {
@@ -46,21 +47,8 @@ export const login = async (email: string, password: string): Promise<any> => {
     return decodedToken;
   } catch (error: any) {
     console.error('[Auth] login error:', error);
-    // Si el servidor responde con un body, devolver su mensaje cuando exista
-    if (error.response && error.response.data) {
-      const serverMsg =
-        error.response.data.error || error.response.data.message || JSON.stringify(error.response.data);
-      throw new Error(serverMsg);
-    }
-
-    // Si la petición se envió pero no hubo respuesta
-    if (error.request) {
-      throw new Error(
-        'No hay respuesta del servidor. Verifica que la API sea accesible desde el dispositivo y que el certificado SSL sea válido (self-signed puede fallar en Android).'
-      );
-    }
-
-    // Otros errores (p. ej. configuración, network, etc.)
-    throw new Error(error.message || 'Ocurrió un error desconocido durante el inicio de sesión.');
+    // Usar el manejador centralizado para lanzar un mensaje limpio
+    const msg = getErrorMessage(error);
+    throw new Error(msg);
   }
 };

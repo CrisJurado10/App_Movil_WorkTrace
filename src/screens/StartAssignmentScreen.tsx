@@ -20,6 +20,7 @@ import { updateProgress, finishAssignment } from '../api/assignmentStart';
 import { CommonActions } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createEvaluationSession } from '../api/assignmentEvaluation';
+import { getErrorMessage } from '../utils/errorHandler';
 
 // Interfaz para los archivos de media
 interface UploadFile {
@@ -160,7 +161,7 @@ const StartAssignmentScreen = ({ route, navigation }) => {
       Alert.alert('Progreso actualizado', 'Comentario y fotos enviados.');
       setProgressSent(true);
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'No se pudo actualizar el progreso.');
+      Alert.alert('Error', getErrorMessage(err));
     } finally {
       setSendingProgress(false);
     }
@@ -176,10 +177,7 @@ const StartAssignmentScreen = ({ route, navigation }) => {
       setQrVisible(true);
     } catch (error: any) {
       console.error('Error creando sesión QR:', error);
-      Alert.alert(
-        'Error',
-        error.message || 'No se pudo generar el QR de evaluación.',
-      );
+      Alert.alert('Error', getErrorMessage(error));
     } finally {
       setLoadingQr(false);
     }
@@ -231,7 +229,7 @@ const StartAssignmentScreen = ({ route, navigation }) => {
     } catch (err: any) {
       // Detener tracking incluso si hay error
       stopTracking();
-      Alert.alert('Error', err.message || 'No se pudo finalizar la tarea.');
+      Alert.alert('Error', getErrorMessage(err));
     } finally {
       setFinishing(false);
     }

@@ -11,9 +11,7 @@ import {
   Image,
   PermissionsAndroid,
   Platform,
-  NativeModules,
   TouchableOpacity,
-  Linking,
 } from 'react-native';
 import ImagePicker from 'react-native-image-crop-picker';
 import QRCode from 'react-native-qrcode-svg';
@@ -35,11 +33,11 @@ const StartAssignmentScreen = ({ route, navigation }) => {
   const [loading, setLoading] = useState(true);
   const [checkInTime, setCheckInTime] = useState<string>('');
   const [lastCoords, setLastCoords] = useState<string>('');
-  const [showQR, setShowQR] = useState(true);
 
   const [comment, setComment] = useState<string>('');
   const [mediaFiles, setMediaFiles] = useState<UploadFile[]>([]);
   const [sendingProgress, setSendingProgress] = useState(false);
+  const [progressSent, setProgressSent] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [qrVisible, setQrVisible] = useState(false);
   const [qrUrl, setQrUrl] = useState<string | null>(null);
@@ -147,13 +145,20 @@ const StartAssignmentScreen = ({ route, navigation }) => {
   };
 
   const handleUpdateProgress = async () => {
+    if (!comment.trim() || mediaFiles.length === 0) {
+      Alert.alert(
+        'Campos incompletos',
+        'Debes escribir un comentario y tomar una foto antes de enviar el progreso.',
+      );
+      return;
+    }
+
     try {
       setSendingProgress(true);
       const fd = buildFormData(comment, mediaFiles);
       await updateProgress(assignmentId, fd);
       Alert.alert('Progreso actualizado', 'Comentario y fotos enviados.');
-      setComment('');
-      setMediaFiles([]);
+      setProgressSent(true);
     } catch (err: any) {
       Alert.alert('Error', err.message || 'No se pudo actualizar el progreso.');
     } finally {
@@ -279,12 +284,21 @@ const StartAssignmentScreen = ({ route, navigation }) => {
           {/* Sección para finalizar tarea */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Finalizar tarea</Text>
-            <Button
-              title={finishing ? 'Finalizando...' : 'Finalizar (Check-Out)'}
+            <TouchableOpacity
+              style={[
+                styles.customButton,
+                {
+                  backgroundColor:
+                    !progressSent || finishing ? '#9CA3AF' : '#10B981',
+                },
+              ]}
               onPress={handleFinishAssignment}
-              disabled={finishing}
-              color="#10B981"
-            />
+              disabled={finishing || !progressSent}
+            >
+              <Text style={styles.customButtonText}>
+                {finishing ? 'Finalizando...' : 'Finalizar (Check-Out)'}
+              </Text>
+            </TouchableOpacity>
           </View>
         </>
       )}
@@ -351,6 +365,18 @@ const styles = StyleSheet.create({
     marginVertical: 10,
   },
   imagePreview: { width: 80, height: 80, marginRight: 8, borderRadius: 8 },
+  customButton: {
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 5,
+  },
+  customButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
   qrOverlay: {
     position: 'absolute',
     top: 0,

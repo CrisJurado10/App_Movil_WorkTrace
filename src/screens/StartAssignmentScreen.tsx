@@ -16,7 +16,12 @@ import {
 import ImagePicker from 'react-native-image-crop-picker';
 import QRCode from 'react-native-qrcode-svg';
 import useLocationTracking from '../hooks/useLocationTracking';
-import { updateProgress, finishAssignment } from '../api/assignmentStart';
+import {
+  updateProgress,
+  finishAssignment,
+  fetchStartDetail,
+  StartAssignmentDetailResponse,
+} from '../api/assignmentStart';
 import { CommonActions } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createEvaluationSession } from '../api/assignmentEvaluation';
@@ -43,6 +48,8 @@ const StartAssignmentScreen = ({ route, navigation }) => {
   const [qrVisible, setQrVisible] = useState(false);
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [loadingQr, setLoadingQr] = useState(false);
+  const [startDetail, setStartDetail] =
+    useState<StartAssignmentDetailResponse | null>(null);
 
   // Obtener stopTracking del hook
   const { stopTracking } = useLocationTracking({
@@ -64,8 +71,13 @@ const StartAssignmentScreen = ({ route, navigation }) => {
       setCheckInTime(now);
     }
 
+    // Fetch start details (Service Steps)
+    fetchStartDetail(assignmentId).then(data => {
+      setStartDetail(data);
+    });
+
     return () => clearTimeout(t);
-  }, [route.params?.checkIn]);
+  }, [route.params?.checkIn, assignmentId]);
 
   const requestCameraPermission = async () => {
     if (Platform.OS === 'android') {
@@ -249,12 +261,51 @@ const StartAssignmentScreen = ({ route, navigation }) => {
             <Text style={styles.coords}>Última ubicación: {lastCoords}</Text>
           )}
 
+          {/* Sección de Pasos del Servicio */}
+          {startDetail?.installationSteps &&
+            startDetail?.installationSteps?.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Pasos del Servicio</Text>
+                <View style={styles.card}>
+                  <Text style={styles.serviceName}>
+                    {startDetail?.serviceName ?? 'Servicio'}
+                  </Text>
+                  <Text style={styles.serviceDescription}>
+                    {startDetail?.serviceDescription ??
+                      'Sin descripción disponible.'}
+                  </Text>
+                  <View style={styles.stepsContainer}>
+                    {startDetail?.installationSteps?.map((step, index) => (
+                      <View key={index} style={styles.stepItem}>
+                        <View style={styles.stepNumberContainer}>
+                          <Text style={styles.stepNumber}>
+                            {step?.stepNumber ?? index + 1}
+                          </Text>
+                        </View>
+                        <View style={styles.stepContent}>
+                          {step?.stepName ? (
+                            <Text style={styles.stepName}>
+                              {step?.stepName ?? ''}
+                            </Text>
+                          ) : null}
+                          <Text style={styles.stepDescription}>
+                            {step?.description ?? 'Paso sin descripción'}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              </View>
+            )}
+
           {/* Sección para actualizar progreso */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Actualizar progreso</Text>
             <TextInput
               style={styles.input}
-              placeholder="Escribe un comentario..."
+              placeholder="Escribir un comentario sobre el progreso..."
+              placeholderTextColor="#5d636c"
               value={comment}
               onChangeText={setComment}
               multiline
@@ -419,6 +470,65 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: 'bold',
     fontSize: 16,
+  },
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 16,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  serviceName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1f2937',
+    marginBottom: 4,
+  },
+  serviceDescription: {
+    fontSize: 14,
+    color: '#4b5563',
+    marginBottom: 16,
+    fontStyle: 'italic',
+  },
+  stepsContainer: {
+    marginTop: 8,
+  },
+  stepItem: {
+    flexDirection: 'row',
+    marginBottom: 16,
+  },
+  stepNumberContainer: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#2563EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  stepNumber: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  stepContent: {
+    flex: 1,
+  },
+  stepName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 2,
+  },
+  stepDescription: {
+    fontSize: 14,
+    color: '#374151',
+    lineHeight: 20,
   },
 });
 

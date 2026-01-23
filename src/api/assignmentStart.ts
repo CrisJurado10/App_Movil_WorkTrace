@@ -104,3 +104,42 @@ export const finishAssignment = async (
     },
   });
 };
+
+// ----------- GET START DETAIL (Service Steps) --------------
+export interface InstallationStep {
+  stepNumber: number;
+  stepName?: string;
+  description: string;
+}
+
+export interface StartAssignmentDetailResponse {
+  serviceName: string;
+  serviceDescription: string;
+  installationSteps: InstallationStep[];
+}
+
+export const fetchStartDetail = async (
+  id: string | number
+): Promise<StartAssignmentDetailResponse> => {
+  const token = await AsyncStorage.getItem("userToken");
+  const defaultResponse: StartAssignmentDetailResponse = {
+    serviceName: "Servicio",
+    serviceDescription: "Sin información adicional.",
+    installationSteps: [],
+  };
+
+  try {
+    const response = await axios.get<StartAssignmentDetailResponse>(
+      `${API_URL}/AssignmentMobile/GetStartAssignmentDetail/${id}/start-detail`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+    return response.data || defaultResponse;
+  } catch (err) {
+    console.warn("fetchStartDetail failed, returning default.", err);
+    return defaultResponse;
+  }
+};

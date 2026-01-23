@@ -158,6 +158,16 @@ const StartAssignmentScreen = ({ route, navigation }) => {
   };
 
   const handleUpdateProgress = async () => {
+    if (sendingProgress) return;
+
+    if (comment.length > 128) {
+      Alert.alert(
+        'Límite de caracteres',
+        'El comentario no puede exceder los 128 caracteres.',
+      );
+      return;
+    }
+
     if (!comment.trim() || mediaFiles.length === 0) {
       Alert.alert(
         'Campos incompletos',
@@ -308,6 +318,7 @@ const StartAssignmentScreen = ({ route, navigation }) => {
               placeholderTextColor="#5d636c"
               value={comment}
               onChangeText={setComment}
+              maxLength={128}
               multiline
             />
             <View style={{ marginBottom: 10, marginTop: 10 }}>

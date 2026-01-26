@@ -4,7 +4,6 @@ import {
   Text,
   TextInput,
   StyleSheet,
-  SafeAreaView,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
@@ -14,6 +13,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { login } from '../api/auth';
 import LinearGradient from 'react-native-linear-gradient';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 

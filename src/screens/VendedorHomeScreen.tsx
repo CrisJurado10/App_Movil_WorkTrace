@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -10,7 +10,11 @@ import {
   InteractionManager,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useFocusEffect, CommonActions } from '@react-navigation/native';
+import {
+  useFocusEffect,
+  CommonActions,
+  useRoute,
+} from '@react-navigation/native';
 import { getTakenRequirementsByUserAndDateRange } from '../api/takenRequirement';
 
 interface Props {
@@ -18,11 +22,35 @@ interface Props {
 }
 
 const VendedorHomeScreen: React.FC<Props> = ({ navigation }) => {
+  const route = useRoute<any>();
+
+  const [displayName, setDisplayName] = useState(route.params?.userName || '');
+
   const [groupedRequirements, setGroupedRequirements] = useState<
     { label: string; data: any[] }[]
   >([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  /* =======================
+     LOAD USER NAME
+     ======================= */
+  useEffect(() => {
+    const loadName = async () => {
+      if (!displayName) {
+        const storedName = await AsyncStorage.getItem('userName');
+        if (storedName) setDisplayName(storedName);
+      }
+    };
+    loadName();
+  }, [displayName]);
+
+  /* =======================
+     🔁 BACK BUTTON → LOGIN
+     ======================= */
+  const handleBackToLogin = () => {
+    navigation.navigate('Login');
+  };
 
   /* =======================
      LOGOUT
@@ -35,10 +63,9 @@ const VendedorHomeScreen: React.FC<Props> = ({ navigation }) => {
         style: 'destructive',
         onPress: async () => {
           try {
+            // ❗ NO borramos email ni password
             await AsyncStorage.multiRemove([
               'userToken',
-              'userEmail',
-              'userPassword',
               'userId',
               'userRole',
               'userName',
@@ -111,21 +138,14 @@ const VendedorHomeScreen: React.FC<Props> = ({ navigation }) => {
       const normalize = (data: any) =>
         Array.isArray(data) ? data : data ? [data] : [];
 
-      const todayItems = normalize(todayRaw);
-      const oneDaysItems = normalize(oneDaysRaw);
-      const twoDaysItems = normalize(twoDaysRaw);
-
       const groups: { label: string; data: any[] }[] = [];
 
-      if (todayItems.length > 0) {
-        groups.push({ label: 'Hoy', data: todayItems });
-      }
-      if (oneDaysItems.length > 0) {
-        groups.push({ label: 'Hace 1 día', data: oneDaysItems });
-      }
-      if (twoDaysItems.length > 0) {
-        groups.push({ label: 'Hace 2 días', data: twoDaysItems });
-      }
+      if (normalize(todayRaw).length)
+        groups.push({ label: 'Hoy', data: normalize(todayRaw) });
+      if (normalize(oneDaysRaw).length)
+        groups.push({ label: 'Hace 1 día', data: normalize(oneDaysRaw) });
+      if (normalize(twoDaysRaw).length)
+        groups.push({ label: 'Hace 2 días', data: normalize(twoDaysRaw) });
 
       setGroupedRequirements(groups);
     } catch {
@@ -135,18 +155,12 @@ const VendedorHomeScreen: React.FC<Props> = ({ navigation }) => {
     }
   };
 
-  /* =======================
-     PULL TO REFRESH
-     ======================= */
   const onRefresh = async () => {
     setRefreshing(true);
     await loadData();
     setRefreshing(false);
   };
 
-  /* =======================
-     ACTIONS
-     ======================= */
   const handleEditRequirement = (requirement: any) => {
     navigation.push('TakenRequirementEdit', {
       requirementToEdit: requirement,
@@ -159,9 +173,6 @@ const VendedorHomeScreen: React.FC<Props> = ({ navigation }) => {
     });
   };
 
-  /* =======================
-     RENDER ITEM
-     ======================= */
   const renderRequirement = (item: any) => (
     <View style={styles.requirementCard}>
       <Text style={styles.cardTitle}>{item.title}</Text>
@@ -194,9 +205,6 @@ const VendedorHomeScreen: React.FC<Props> = ({ navigation }) => {
     </View>
   );
 
-  /* =======================
-     LOADING
-     ======================= */
   if (loading) {
     return (
       <View style={styles.centerContainer}>
@@ -205,17 +213,26 @@ const VendedorHomeScreen: React.FC<Props> = ({ navigation }) => {
     );
   }
 
-  /* =======================
-     UI
-     ======================= */
   return (
     <View style={styles.container}>
       {/* HEADER */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Mis Requerimientos</Text>
-        <TouchableOpacity onPress={handleLogout}>
-          <Text style={styles.logoutText}>Cerrar sesión</Text>
+        {/* 🔁 BACK BUTTON */}
+        <TouchableOpacity onPress={handleBackToLogin}>
+          <Text style={styles.backText}>←</Text>
         </TouchableOpacity>
+
+        <Text style={styles.headerTitle}>Mis Requerimientos</Text>
+
+        <TouchableOpacity onPress={handleLogout}>
+          <Text style={styles.logoutText}>Salir</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* BIENVENIDA */}
+      <View style={styles.welcomeContainer}>
+        <Text style={styles.title}>Bienvenido</Text>
+        <Text style={styles.name}>{displayName}</Text>
       </View>
 
       <FlatList
@@ -244,7 +261,7 @@ const VendedorHomeScreen: React.FC<Props> = ({ navigation }) => {
 };
 
 /* =======================
-   STYLES (SIN CAMBIOS)
+   STYLES
    ======================= */
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
@@ -255,11 +272,31 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  backText: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: '700',
   },
   headerTitle: { color: '#fff', fontSize: 20, fontWeight: '700' },
   logoutText: { color: '#fff', fontWeight: '600' },
+
+  welcomeContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '600',
+    color: '#4B5563',
+  },
+  name: {
+    fontSize: 30,
+    fontWeight: 'bold',
+    color: '#111827',
+  },
 
   listContent: { paddingHorizontal: 16, paddingBottom: 100 },
 

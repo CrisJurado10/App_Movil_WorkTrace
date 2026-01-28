@@ -84,6 +84,8 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+        // AGREGADO: Importante para evitar cierres inesperados si usas muchas librerías
+        multiDexEnabled true 
     }
     signingConfigs {
         debug {
@@ -101,7 +103,13 @@ android {
             // Caution! In production, you need to generate your own keystore file.
             // see https://reactnative.dev/docs/signed-apk-android.
             signingConfig signingConfigs.debug
-            minifyEnabled enableProguardInReleaseBuilds
+            
+            // --- CAMBIOS CLAVE AQUÍ ---
+            // Forzamos false explícitamente para desactivar Proguard por completo
+            minifyEnabled false
+            shrinkResources false
+            // ---------------------------
+            
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
     }

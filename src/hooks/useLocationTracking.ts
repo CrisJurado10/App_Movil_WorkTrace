@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Linking, Platform } from 'react-native';
 import Geolocation from 'react-native-geolocation-service';
+import BackgroundService from 'react-native-background-actions'; // <--- LA CLAVE
 import { startAssignment, updateLocation } from '../api/assignmentStart';
 import { requestLocationPermission } from '../utils/requestLocationPermission';
 
@@ -16,89 +17,62 @@ type Coords = { lat: number; lng: number };
 
 const DEFAULT_COORDS: Coords = { lat: 0, lng: 0 };
 
+// Función de espera segura para el loop
+const sleep = (time: number) => new Promise<void>((resolve) => setTimeout(() => resolve(), time));
+
 const useLocationTracking = ({ assignmentId, enabled, intervalMs, onLocationUpdate, onFinish }: Props) => {
   const [hasCheckedIn, setHasCheckedIn] = useState(false);
-  const intervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const askingPermissionRef = useRef(false);
 
-  // --- Función para detener el tracking ---
-  const stopTracking = () => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-      console.log('🛑 Ubicación tracking detenido');
-    }
-  };
-
-  // --- Helper: pedir ubicación con mejor manejo ---
+  // --- 1. Obtener Coordenadas (Tu lógica original mejorada) ---
   const getLocation = (): Promise<Coords> => {
     return new Promise((resolve, reject) => {
       Geolocation.getCurrentPosition(
         (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
         (error) => reject(error),
         {
-          enableHighAccuracy: false, // Specified
-          timeout: 30000,            // Specified
-          maximumAge: 1000,          // Specified
+          enableHighAccuracy: true,
+          timeout: 20000,
+          maximumAge: 5000,
+          forceRequestLocation: true, // Forzar lectura hardware
         }
       );
     });
   };
 
-  // --- Chequear si Location Services están activos (Android-only) ---
-  const checkLocationServices = async (): Promise<boolean> => {
-    if (Platform.OS !== 'android') return true;
-    try {
-      return await new Promise((resolve) => {
-        Geolocation.getCurrentPosition(
-          () => resolve(true),
-          (error) => {
-            console.log('checkLocationServices internal error:', error);
-            // code === 2: POSITION_UNAVAILABLE (GPS apagado o provider deshabilitado)
-            if (error?.code === 2) resolve(false);
-            else resolve(true);
-          },
-          { enableHighAccuracy: true, timeout: 5000, maximumAge: 10000 }
-        );
-      });
-    } catch (e) {
-      console.warn('checkLocationServices threw:', e);
-      // En caso de crash de la librería, asumimos true para no bloquear,
-      // o false si queremos ser estrictos.
-      return true; 
-    }
-  };
-
-  // --- Reintentos simples con backoff para lecturas fallidas ---
   const getLocationWithRetry = async (retries = 2): Promise<Coords> => {
     let attempt = 0;
     while (attempt <= retries) {
       try {
-        const c = await getLocation();
-        return c;
+        return await getLocation();
       } catch (err: any) {
-        console.log('getLocation error:', err?.code, err?.message);
+        console.log(`getLocation error (intento ${attempt + 1}):`, err?.code);
         if (attempt === retries) throw err;
-        await new Promise((r) => setTimeout(() => r(undefined), 1500 * (attempt + 1))); // backoff
+        await sleep(1500 * (attempt + 1));
         attempt++;
       }
     }
     throw new Error('No se pudo obtener ubicación tras varios intentos.');
   };
 
-  const startInterval = () => {
-    if (intervalRef.current) return;
-    intervalRef.current = setInterval(async () => {
+  // --- 2. La Tarea de Background (El "Corazón" que no muere) ---
+  const veryIntensiveTask = async (taskDataArguments?: { delay: number }) => {
+    const { delay } = taskDataArguments || { delay: intervalMs }; // Usar el intervalo que viene de props
+
+    // Bucle infinito que mantiene vivo el servicio
+    while (BackgroundService.isRunning()) {
       try {
+        // A. Obtener Ubicación
         let coords: Coords;
         try {
           coords = await getLocationWithRetry();
         } catch (locErr) {
-          console.log('⚠️ No se obtuvo ubicación para update; usando coordenadas por defecto', locErr);
+          console.log('⚠️ Fallo GPS en background, usando última conocida o default');
           coords = DEFAULT_COORDS;
         }
-        const now = new Date().toISOString();
 
+        // B. Preparar Payload
+        const now = new Date().toISOString();
         const payload = {
           currentLocation: {
             latitude: coords.lat,
@@ -107,48 +81,81 @@ const useLocationTracking = ({ assignmentId, enabled, intervalMs, onLocationUpda
           },
         };
 
-        try {
-          await updateLocation(assignmentId, payload);
-          if (onLocationUpdate) onLocationUpdate(`${coords.lat}, ${coords.lng}`);
-          console.log('📡 Ubicación enviada:', payload);
-        } catch (e) {
-          console.log('⚠️ Error enviando ubicación (update), se mantiene el flujo:', e);
-        }
+        // C. Enviar a tu API
+        console.log('📡 Enviando ubicación (BG):', payload);
+        await updateLocation(assignmentId, payload);
+
+        // D. Actualizar Notificación (Vital para Android 14)
+        await BackgroundService.updateNotification({
+            taskDesc: `Último envío: ${now.split('T')[1].split('.')[0]}`,
+        });
+
+        // E. Callback al Front (si la app está abierta)
+        if (onLocationUpdate) onLocationUpdate(`${coords.lat}, ${coords.lng}`);
+
       } catch (e: any) {
-        // Manejo suave de errores: no crashea, solo informa
-        console.log('⚠️ Error enviando ubicación:', e?.message ?? e);
+        console.log('⚠️ Error en ciclo background:', e?.message);
       }
-    }, intervalMs);
+
+      // F. Esperar X segundos antes de la siguiente vuelta
+      await sleep(delay);
+    }
+  };
+
+  // --- 3. Configuración del Servicio ---
+  const options = {
+    taskName: 'WorkTraceLocation',
+    taskTitle: 'WorkTrace Activo',
+    taskDesc: 'Rastreando ubicación en segundo plano',
+    taskIcon: {
+      name: 'ic_launcher', 
+      type: 'mipmap',
+    },
+    color: '#ff00ff',
+    linkingURI: 'worktrace://', 
+    parameters: {
+      delay: intervalMs, // Pasamos tu intervalo aquí
+    },
+  };
+
+  // --- 4. Funciones de Control ---
+  const startBackgroundService = async () => {
+    if (!BackgroundService.isRunning()) {
+      try {
+        console.log('🚀 Iniciando Servicio Background...');
+        await BackgroundService.start(veryIntensiveTask, options);
+      } catch (e) {
+        console.log('Error al arrancar servicio:', e);
+      }
+    }
+  };
+
+  const stopTracking = async () => {
+    if (BackgroundService.isRunning()) {
+        console.log('🛑 Deteniendo Servicio Background...');
+        await BackgroundService.stop();
+    }
   };
 
   const sendCheckIn = async () => {
     try {
+      console.log('📍 Iniciando Check-In...');
       let coords: Coords;
-      let attempts = 0;
-      const maxAttempts = 3;
-
-      // Retry loop specifically for check-in to avoid sending 0,0
-      while (attempts < maxAttempts) {
-        try {
-          coords = await getLocationWithRetry();
-          if (coords.lat !== 0 || coords.lng !== 0) break;
-        } catch (locErr) {
-          console.log(`Check-in location attempt ${attempts + 1} failed:`, locErr);
-        }
-        attempts++;
-        if (attempts < maxAttempts) await new Promise(r => setTimeout(r, 2000));
+      try {
+         coords = await getLocationWithRetry();
+      } catch (e) {
+         // Si falla, intentamos una vez más o fallamos
+         console.log('Fallo GPS en Checkin');
+         return; 
       }
-
-      // Final check: if still 0,0, do NOT send.
-      // Note: We use a type assertion or check logic. 
-      // Since we initialized coords inside loop, we need to be careful.
-      // Let's re-fetch or fail.
-      if (!coords! || (coords.lat === 0 && coords.lng === 0)) {
-         throw new Error("No se pudo obtener una ubicación válida (distinta de 0,0).");
+      
+      // Validación estricta para no mandar 0,0 en checkin
+      if (!coords || (coords.lat === 0 && coords.lng === 0)) {
+         console.log('Coordenadas inválidas para Check-in');
+         return;
       }
 
       const now = new Date().toISOString();
-
       const payload = {
         checkIn: now,
         currentLocation: {
@@ -158,88 +165,50 @@ const useLocationTracking = ({ assignmentId, enabled, intervalMs, onLocationUpda
         },
       };
 
-      console.log('🟢 Enviando CHECK-IN (Valid coords):', payload);
       await startAssignment(assignmentId, payload);
       setHasCheckedIn(true);
       if (onLocationUpdate) onLocationUpdate(`${coords.lat}, ${coords.lng}`);
+      console.log('✅ Check-In Enviado');
     } catch (err: any) {
-      console.log('❌ Error enviando CHECK-IN:', err?.message ?? err);
-      const serverError = err.response?.data ? JSON.stringify(err.response.data) : err.message;
-      Alert.alert(
-        'Error de Ubicación',
-        `No se pudo enviar el Check-In porque no se obtuvo una ubicación válida. (${serverError})`,
-        [{ text: 'Reintentar', onPress: () => sendCheckIn() }, { text: 'Cancelar', style: 'cancel' }]
-      );
+      console.log('❌ Error en Check-In:', err);
+      Alert.alert('Error', 'No se pudo enviar el Check-In');
     }
   };
 
+  // --- 5. Effect Principal (Auto-Arranque) ---
   useEffect(() => {
-    if (!enabled) return;
-
-    let isMounted = true;
+    if (!enabled) {
+        // Si se deshabilita, matamos el servicio
+        stopTracking();
+        return;
+    }
 
     const init = async () => {
-      try {
-        // Evitar doble diálogo concurrente
-        if (askingPermissionRef.current) return;
-        askingPermissionRef.current = true;
-
-        const hasPermission = await requestLocationPermission();
-        askingPermissionRef.current = false;
-        
-        if (!hasPermission) {
-          Alert.alert(
-            'Permiso requerido',
-            'Activa el permiso de ubicación para continuar.',
-            [
-              { text: 'Cancelar', style: 'cancel' },
-              { text: 'Abrir ajustes', onPress: () => Linking.openSettings() },
-            ]
-          );
-          return;
-        }
-
-        // Chequear Location Services (GPS / providers)
-        const servicesActive = await checkLocationServices();
-        if (!servicesActive) {
-          Alert.alert(
-            'Ubicación desactivada',
-            'Activa la ubicación/GPS del dispositivo para continuar.',
-            [
-              { text: 'Cancelar', style: 'cancel' },
-              { text: 'Abrir ajustes', onPress: () => Linking.openSettings() },
-            ]
-          );
-          return;
-        }
-
-        // Importante: pequeña espera tras permiso para evitar crash en algunos OEMs
-        await new Promise((r) => setTimeout(() => r(undefined), 300));
-
-        if (!hasCheckedIn && isMounted) {
-          await sendCheckIn();
-        }
-
-        startInterval();
-      } catch (e: any) {
-        console.log('Error inicializando tracking:', e?.message ?? e);
-        Alert.alert(
-          'Error de ubicación',
-          `No se pudo iniciar el tracking. Detalle: ${e?.message ?? JSON.stringify(e)}`,
-          [{ text: 'OK' }]
-        );
+      // A. Permisos
+      if (askingPermissionRef.current) return;
+      askingPermissionRef.current = true;
+      const hasPermission = await requestLocationPermission();
+      askingPermissionRef.current = false;
+      
+      if (!hasPermission) {
+         Alert.alert('Permiso requerido', 'Debes permitir ubicación "Todo el tiempo"');
+         return;
       }
+
+      // B. Check-In (Solo si no se ha hecho)
+      if (!hasCheckedIn) {
+        await sendCheckIn();
+      }
+
+      // C. Arrancar el Loop Infinito
+      startBackgroundService();
     };
 
     init();
 
-    return () => {
-      isMounted = false;
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    };
+    // Cleanup: Al salir de la pantalla, ¿paramos o seguimos?
+    // Si quieres que siga al salir de la pantalla, BORRA la línea de abajo.
+    // return () => { stopTracking(); }; 
   }, [enabled]);
 
   return { stopTracking };
